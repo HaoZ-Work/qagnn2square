@@ -11,6 +11,13 @@ ENCODER_DEFAULT_LR = {
         'bert-large-uncased': 2e-5,
         'roberta-large': 1e-5,
     },
+    'mytest': {
+        'lstm': 3e-4,
+        'openai-gpt': 1e-4,
+        'bert-base-uncased': 3e-5,
+        'bert-large-uncased': 2e-5,
+        'roberta-large': 1e-5,
+    },
     'obqa': {
         'lstm': 3e-4,
         'openai-gpt': 3e-5,
@@ -23,9 +30,10 @@ ENCODER_DEFAULT_LR = {
     },
 }
 
-DATASET_LIST = ['csqa', 'obqa', 'socialiqa', 'medqa_usmle']
+DATASET_LIST = ['csqa', 'obqa', 'socialiqa', 'medqa_usmle','mytest']
 
 DATASET_SETTING = {
+    'mytest': 'inhouse',
     'csqa': 'inhouse',
     'obqa': 'official',
     'socialiqa': 'official',

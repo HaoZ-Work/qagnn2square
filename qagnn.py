@@ -32,7 +32,11 @@ def evaluate_accuracy(eval_set, model):
     model.eval()
     with torch.no_grad():
         for qids, labels, *input_data in tqdm(eval_set):
+            print(f"one of shape of input data {input_data[0].shape}")
             logits, _ = model(*input_data)
+            print("logits:", logits)
+            print("logits argmax:",logits.argmax(1))
+            print(f"labels{labels}")
             n_correct += (logits.argmax(1) == labels).sum().item()
             n_samples += labels.size(0)
     return n_correct / n_samples
@@ -97,9 +101,6 @@ def main():
         eval_detail(args)
     else:
         raise ValueError('Invalid mode')
-
-
-
 
 def train(args):
     print(args)
@@ -344,12 +345,19 @@ def eval_detail(args):
     assert args.load_model_path is not None
     model_path = args.load_model_path
 
+
+    ## only for medqa data
     cp_emb = [np.load(path) for path in args.ent_emb_paths]
     cp_emb = torch.tensor(np.concatenate(cp_emb, 1), dtype=torch.float)
     concept_num, concept_dim = cp_emb.size(0), cp_emb.size(1)
     print('| num_concepts: {} |'.format(concept_num))
 
+
+    # load the model
     model_state_dict, old_args = torch.load(model_path, map_location=torch.device('cpu'))
+
+
+    # create the model template
     model = LM_QAGNN(old_args, old_args.encoder, k=old_args.k, n_ntype=4, n_etype=old_args.num_relation, n_concept=concept_num,
                                concept_dim=old_args.gnn_dim,
                                concept_in_dim=concept_dim,
@@ -358,8 +366,12 @@ def eval_detail(args):
                                pretrained_concept_emb=cp_emb, freeze_ent_emb=old_args.freeze_ent_emb,
                                init_range=old_args.init_range,
                                encoder_config={})
+
+    #load the model
     model.load_state_dict(model_state_dict)
 
+
+    # cpu and gpu setting
     if torch.cuda.device_count() >= 2 and args.cuda:
         device0 = torch.device("cuda:0")
         device1 = torch.device("cuda:1")

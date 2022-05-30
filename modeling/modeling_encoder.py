@@ -116,6 +116,10 @@ class TextEncoder(nn.Module):
         if self.model_type in ('lstm',):  # lstm
             input_ids, lengths = inputs
             outputs = self.module(input_ids, lengths)
+            # print("output of lstm encoder:", len(outputs))
+            # for i in outputs[2]:
+            #     print("!",i.shape)
+
         elif self.model_type in ('gpt',):  # gpt
             input_ids, cls_token_ids, lm_labels = inputs  # lm_labels is not used
             outputs = self.module(input_ids)
@@ -148,7 +152,12 @@ def run_test():
     input_ids = torch.randint(0, 100, (30, 70))
     lenghts = torch.randint(1, 70, (30,))
     outputs = encoder(input_ids, lenghts)
+    # print(outputs[0].shape)
+    # for i in outputs[1]:
+    #     print(i.shape)
     assert outputs[0].size() == (30, 200)
     assert len(outputs[1]) == 4 + 1
     assert all([x.size() == (30, 70, 100 if l == 0 else 200) for l, x in enumerate(outputs[1])])
     print('all tests are passed')
+
+run_test()
