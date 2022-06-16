@@ -164,8 +164,7 @@ def eval_detail(args):
     print ('args.dev_adj', args.dev_adj)
     print ('args.test_adj', args.test_adj)
 
-    dataset = LM_QAGNN_DataLoader(args, args.train_statements, args.train_adj,
-                                           args.dev_statements, args.dev_adj,
+    dataset = LM_QAGNN_DataLoader(args,
                                            args.test_statements, args.test_adj,
                                            batch_size=args.batch_size, eval_batch_size=args.eval_batch_size,
                                            device=(device0, device1),
@@ -181,7 +180,7 @@ def eval_detail(args):
         test_acc = evaluate_accuracy(dataset.test(), model) if args.test_statements else 0.0
     else:
         eval_set = dataset.test()
-
+        print(next(iter(eval_set)))
         #
         # dt = datetime.datetime.today().strftime('%Y%m%d%H%M%S')
         # preds_path = os.path.join(args.save_dir, 'test_preds_{}.csv'.format(dt))

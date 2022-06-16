@@ -76,7 +76,6 @@ def main():
         ],
 
         'mytest': [
-
             {'func': convert_to_entailment,
              'args': (input_paths['mytest']['test'], output_paths['mytest']['statement']['test'])},
             {'func': ground, 'args': (output_paths['mytest']['statement']['test'], output_paths['cpnet']['vocab'],

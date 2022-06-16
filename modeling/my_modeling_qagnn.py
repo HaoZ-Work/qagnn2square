@@ -1,4 +1,4 @@
-from modeling.modeling_encoder import TextEncoder, MODEL_NAME_TO_CLASS
+from modeling.my_modeling_encoder import TextEncoder, MODEL_NAME_TO_CLASS
 from utils.data_utils import *
 from utils.layers import *
 import torch.nn.functional as F
@@ -254,8 +254,7 @@ class LM_QAGNN(nn.Module):
 
 class LM_QAGNN_DataLoader(object):
 
-    def __init__(self, args, train_statement_path, train_adj_path,
-                 dev_statement_path, dev_adj_path,
+    def __init__(self, args,
                  test_statement_path, test_adj_path,
                  batch_size, eval_batch_size, device, model_name, max_node_num=200, max_seq_length=128,
                  is_inhouse=False, inhouse_train_qids_path=None,
@@ -344,6 +343,8 @@ class LM_QAGNN_DataLoader(object):
             return MultiGPUSparseAdjDataBatchGenerator(self.args, 'eval', self.device0, self.device1, self.eval_batch_size, self.inhouse_test_indexes, self.train_qids, self.train_labels, tensors0=self.train_encoder_data, tensors1=self.train_decoder_data, adj_data=self.train_adj_data)
         else:
             return MultiGPUSparseAdjDataBatchGenerator(self.args, 'eval', self.device0, self.device1, self.eval_batch_size, torch.arange(len(self.test_qids)), self.test_qids, self.test_labels, tensors0=self.test_encoder_data, tensors1=self.test_decoder_data, adj_data=self.test_adj_data)
+
+
 
 
 
