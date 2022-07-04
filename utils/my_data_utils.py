@@ -11,6 +11,7 @@ except:
 import json
 from tqdm import tqdm
 
+
 GPT_SPECIAL_TOKENS = ['_start_', '_delimiter_', '_classify_']
 
 
@@ -105,6 +106,7 @@ def load_sparse_adj_data_with_contextnode(adj_pk_path, max_node_num, num_choice,
             #concepts: np.array(num_nodes, ), where entry is concept id
             #qm: np.array(num_nodes, ), where entry is True/False
             #am: np.array(num_nodes, ), where entry is True/False
+            #concepts = np.array(list(set(concepts))) ## TODO: should be removec after fixing the api concept2id_api ()
             assert len(concepts) == len(set(concepts))
             qam = qm | am
             #sanity check: should be T,..,T,F,F,..F
