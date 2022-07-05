@@ -3,31 +3,38 @@ version: "3.1"
 services:
   es:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.16.1
-    container_name: es01
+    #container_name: es_1
     environment:
       - discovery.type=single-node
     volumes:
-      - ./storage:/usr/share/elasticsearch/data
+      # - ./es-data:/usr/share/elasticsearch/data
+      - ./storage:/var/lib/elasticsearch/es_1
     # Port exposure not needed in production (comment out)
     ports:
       - 7200:9200
+    deploy:
+        resources:
+            limits:
+              cpus: '12'
+              memory: 4G
+         
 
-  reverse-proxy:
-    image: traefik:v2.5
-    command:
-      - "--providers.docker"
-      - "--providers.docker.exposedbydefault=false"
-      - "--providers.file.filename=/config/traefik.yaml"
-      - "--entrypoints.web.address=:7010"
-      - "--entrypoints.web.http.middlewares=prefix-strip@file"
-      - "--providers.docker.defaultRule=PathPrefix(`{{ index .Labels \"square.datastore\"}}`)"
-    ports:
-      - "7010:7010"
-    volumes:
-      # The configuration file
-      - ./traefik.yaml:/config/traefik.yaml
-      # So that Traefik can listen to the Docker events
-      - /var/run/docker.sock:/var/run/docker.sock
+  # reverse-proxy:
+  #   image: traefik:v2.5
+  #   command:
+  #     - "--providers.docker"
+  #     - "--providers.docker.exposedbydefault=false"
+  #     - "--providers.file.filename=/config/traefik.yaml"
+  #     - "--entrypoints.web.address=:7010"
+  #     - "--entrypoints.web.http.middlewares=prefix-strip@file"
+  #     - "--providers.docker.defaultRule=PathPrefix(`{{ index .Labels \"square.datastore\"}}`)"
+  #   ports:
+  #     - "7010:7010"
+  #   volumes:
+  #     # The configuration file
+  #     - ./traefik.yaml:/config/traefik.yaml
+  #     # So that Traefik can listen to the Docker events
+  #     - /var/run/docker.sock:/var/run/docker.sock
   
   datastore_mongo:
     image: mongo:5.0.4
@@ -43,7 +50,9 @@ services:
       MONGO_PORT: 27017
     env_file:
       - ./.env
-
+    ports:
+      - 27017:27017
+ 
 ##### BEGIN FAISS Service Containers #####
 
 # Add one container per FAISS index below.
@@ -61,20 +70,33 @@ services:
 
 ##### Datastore API Container (uncomment for production use) #####
 
-  # datastore_api:
-  #   privileged: true
-  #   build: .
-  #   depends_on:
-  #     - es
-  #     - reverse-proxy
-  #   ports:
-  #     - "7000:7000"
-  #   environment:
-  #     - API_KEY=abcdefg
-  #     - ES_URL=http://es:9200
-  #     - FAISS_URL=http://reverse-proxy:7010
-  #     # Specify Model API
-  #     - MODEL_API_URL=http://130.83.167.232:8989/api
-  #     - MODEL_API_KEY=xyz
+#   datastore_api:
+#     privileged: true
+#     build: .
+#     depends_on:
+#       - es
+#       - datastore_mongo
+#       #- reverse-proxy
+#     ports:
+#       - "7000:7000"
+#     environment:
+#       # - API_KEY=abcdefg
+#       - ES_URL=http://es:9200
+#       - FAISS_URL=http://reverse-proxy:7010
+#       # Specify Model API
+#       - MODEL_API_URL=https://square.ukp-lab.de/api
+#       - KEYCLOAK_BASE_URL=https://square.ukp-lab.de
+#       - CLIENT_ID=datastores-to-internal-services
+#       - REALM=square
+#       - VERIFY_ISSUER="1"
+#       - MONGO_INITDB_ROOT_USERNAME=root
+#       - MONGO_HOST=datastore_mongo
+#       - MONGO_PORT=27017
+#     env_file:
+#       - ./.env
 
-
+volumes:
+  datastore-mongo-data:
+    driver: local
+  datastore-mongo-dumps:
+    driver: local
