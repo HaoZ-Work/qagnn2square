@@ -38,7 +38,6 @@ class LM_QAGNN_DataLoader_inference(object):
 
 
 
-
         model_type = MODEL_NAME_TO_CLASS[model_name]
         # print ('train_statement_path', train_statement_path)
         # self.train_qids, self.train_labels, *self.train_encoder_data = load_input_tensors(train_statement_path, model_type, model_name, max_seq_length)
@@ -120,12 +119,19 @@ class LM_QAGNN_DataLoader_inference(object):
     #
     # def dev(self):
     #     return MultiGPUSparseAdjDataBatchGenerator(self.args, 'eval', self.device0, self.device1, self.eval_batch_size, torch.arange(len(self.dev_qids)), self.dev_qids, self.dev_labels, tensors0=self.dev_encoder_data, tensors1=self.dev_decoder_data, adj_data=self.dev_adj_data)
-
+        print(self.args)
     def test(self):
         # if self.is_inhouse:
         #     return MultiGPUSparseAdjDataBatchGenerator(self.args, 'eval', self.device0, self.device1, self.eval_batch_size, self.inhouse_test_indexes, self.train_qids, self.train_labels, tensors0=self.train_encoder_data, tensors1=self.train_decoder_data, adj_data=self.train_adj_data)
         # else:
         return MultiGPUSparseAdjDataBatchGenerator(self.args, 'eval', self.device0, self.device1, self.eval_batch_size, torch.arange(len(self.test_qids)), self.test_qids, self.test_labels, tensors0=self.test_encoder_data, tensors1=self.test_decoder_data, adj_data=self.test_adj_data)
+
+
+
+        # return MultiGPUSparseAdjDataBatchGenerator(self.args, 'eval', self.device0, self.device1, self.eval_batch_size,
+        #                                            torch.arange(len(self.test_qids)), self.test_qids, self.test_labels,
+        #                                            tensors0=self.test_encoder_data, tensors1=self.test_decoder_data,
+        #                                            adj_data=self.test_adj_data)
 
 
 def eval_detail(args,test_statement_json,test_graph):
