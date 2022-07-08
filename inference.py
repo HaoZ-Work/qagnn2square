@@ -26,16 +26,16 @@ DECODER_DEFAULT_LR = {
 class LM_QAGNN_DataLoader_inference(object):
 
     def __init__(self, args,test_statement_json,test_adj,
-                 test_statement_path, test_adj_path,
+
                  batch_size, eval_batch_size, device, model_name, max_node_num=200, max_seq_length=128,
-                 is_inhouse=False, inhouse_train_qids_path=None,
-                 subsample=1.0, use_cache=True):
+
+                 subsample=1.0):
         super().__init__()
         self.args = args
         self.batch_size = batch_size
         self.eval_batch_size = eval_batch_size
         self.device0, self.device1 = device
-        self.is_inhouse = is_inhouse
+
 
 
 
@@ -55,16 +55,24 @@ class LM_QAGNN_DataLoader_inference(object):
         # assert all(len(self.train_qids) == len(self.train_adj_data[0]) == x.size(0) for x in [self.train_labels] + self.train_encoder_data + self.train_decoder_data)
         # assert all(len(self.dev_qids) == len(self.dev_adj_data[0]) == x.size(0) for x in [self.dev_labels] + self.dev_encoder_data + self.dev_decoder_data)
 
-        if test_statement_json is not None:
-            # seems like get tensor from LM model
-            self.test_qids, self.test_labels, *self.test_encoder_data = load_input_tensors(test_statement_json, model_type, model_name, max_seq_length)
+        # if test_statement_json is not None:
+        #     # seems like get tensor from LM model
+        #     self.test_qids, self.test_labels, *self.test_encoder_data = load_input_tensors(test_statement_json, model_type, model_name, max_seq_length)
+        #
+        #
+        #
+        #     # the return is :  concept_ids, node_type_ids, node_scores, adj_lengths, (edge_index, edge_type)
+        #     *self.test_decoder_data, self.test_adj_data = load_sparse_adj_data_with_contextnode(test_adj, max_node_num, num_choice, args)
+        #     assert all(len(self.test_qids) == len(self.test_adj_data[0]) == x.size(0) for x in [self.test_labels] + self.test_encoder_data + self.test_decoder_data)
+        #     print("check point ")
 
+        self.test_qids, self.test_labels, *self.test_encoder_data = load_input_tensors(test_statement_json, model_type,
+                                                                                       model_name, max_seq_length)
 
-
-            # the return is :  concept_ids, node_type_ids, node_scores, adj_lengths, (edge_index, edge_type)
-            *self.test_decoder_data, self.test_adj_data = load_sparse_adj_data_with_contextnode(test_adj, max_node_num, num_choice, args)
-            assert all(len(self.test_qids) == len(self.test_adj_data[0]) == x.size(0) for x in [self.test_labels] + self.test_encoder_data + self.test_decoder_data)
-            print("check point ")
+        *self.test_decoder_data, self.test_adj_data = load_sparse_adj_data_with_contextnode(test_adj, max_node_num,
+                                                                                            num_choice, args)
+        assert all(len(self.test_qids) == len(self.test_adj_data[0]) == x.size(0) for x in
+                   [self.test_labels] + self.test_encoder_data + self.test_decoder_data)
 
         # if self.is_inhouse:
         #     with open(inhouse_train_qids_path, 'r') as fin:
@@ -93,11 +101,11 @@ class LM_QAGNN_DataLoader_inference(object):
     # def dev_size(self):
     #     return len(self.dev_qids)
 
-    def test_size(self):
-        # if self.is_inhouse:
-        #     return self.inhouse_test_indexes.size(0)
-        # else:
-        return len(self.test_qids) if hasattr(self, 'test_qids') else 0
+    # def test_size(self):
+    #     # if self.is_inhouse:
+    #     #     return self.inhouse_test_indexes.size(0)
+    #     # else:
+    #     return len(self.test_qids) if hasattr(self, 'test_qids') else 0
     #
     # def train(self):
     #     if self.is_inhouse:
@@ -185,13 +193,12 @@ def eval_detail(args,test_statement_json,test_graph):
 
     start = time.time()
     dataset = LM_QAGNN_DataLoader_inference(args,test_statement_json,test_graph,
-                                           args.test_statements, args.test_adj,
+
                                            batch_size=args.batch_size, eval_batch_size=args.eval_batch_size,
                                            device=(device0, device1),
                                            model_name=old_args.encoder,
                                            max_node_num=old_args.max_node_num, max_seq_length=old_args.max_seq_len,
-                                           is_inhouse=args.inhouse, inhouse_train_qids_path=args.inhouse_train_qids,
-                                           subsample=args.subsample, use_cache=args.use_cache)
+                                           subsample=args.subsample)
 
     # save_test_preds = args.save_model
     # dev_acc = evaluate_accuracy(dataset.dev(), model)
@@ -282,8 +289,7 @@ def main():
 
 
     mytest_data_json= {"id": "000990552527b1353f98f1e1a7dfc643", "question": {"question_concept": "star", "choices": [{"label": "A", "text": "hollywood"}, {"label": "B", "text": "skyline"}, {"label": "C", "text": "outer space"}, {"label": "D", "text": "constellation"}, {"label": "E", "text": "solar system"}], "stem": "There is a star at the center of what group of celestial bodies?"}}
-    # mytest_data_json = json.dumps(mytest_data)
-    # mytest_data_json=json.loads(mytest_data_json)
+
 
 
     ## get the statement for one test recording
@@ -322,7 +328,7 @@ def main():
     # amask that specifices whether a node is a answer concept
     # cid2score that maps a concept id to its relevance score given the QA context
 
-    #print(test_graph_adj)
+
 
 
     ### rewrite eval_detail()
