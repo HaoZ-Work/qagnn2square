@@ -18,7 +18,7 @@ class QAGNN_Message_Passing(nn.Module):
 
         self.emb_node_type = nn.Linear(self.n_ntype, hidden_size//2)
 
-        self.basis_f = 'sin' #['id', 'linact', 'sin', 'none']
+        self.basis_f = 'sin'  # ['id', 'linact', 'sin', 'none']
         if self.basis_f in ['id']:
             self.emb_score = nn.Linear(1, hidden_size//2)
         elif self.basis_f in ['linact']:
@@ -27,9 +27,14 @@ class QAGNN_Message_Passing(nn.Module):
         elif self.basis_f in ['sin']:
             self.emb_score = nn.Linear(hidden_size//2, hidden_size//2)
 
-        self.edge_encoder = nn.Sequential(nn.Linear(n_etype +1 + n_ntype *2, hidden_size), nn.BatchNorm1d(hidden_size), nn.ReLU(), nn.Linear(hidden_size, hidden_size))
+        self.edge_encoder = nn.Sequential(
+            nn.Linear(n_etype + 1 + n_ntype * 2, hidden_size),
+            nn.BatchNorm1d(hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size))
         self.k = k
-        self.gnn_layers = nn.ModuleList([GATConvE(args, hidden_size, n_ntype, n_etype, self.edge_encoder) for _ in range(k)])
+        self.gnn_layers = nn.ModuleList(
+            [GATConvE(args, hidden_size, n_ntype, n_etype, self.edge_encoder) for _ in range(k)])
 
 
         self.Vh = nn.Linear(input_size, output_size)
@@ -58,7 +63,9 @@ class QAGNN_Message_Passing(nn.Module):
         _batch_size, _n_nodes = node_type.size()
 
         #Embed type
-        T = make_one_hot(node_type.view(-1).contiguous(), self.n_ntype).view(_batch_size, _n_nodes, self.n_ntype)
+        T = make_one_hot(
+            node_type.view(-1).contiguous(),
+            self.n_ntype).view(_batch_size, _n_nodes, self.n_ntype)
         node_type_emb = self.activation(self.emb_node_type(T)) #[batch_size, n_node, dim/2]
 
         #Embed score
@@ -116,8 +123,16 @@ class QAGNN(nn.Module):
 
         self.activation = GELU()
 
-        self.gnn = QAGNN_Message_Passing(args, k=k, n_ntype=n_ntype, n_etype=n_etype,
-                                        input_size=concept_dim, hidden_size=concept_dim, output_size=concept_dim, dropout=p_gnn)
+        self.gnn = QAGNN_Message_Passing(
+            args,
+            k=k,
+            n_ntype=n_ntype,
+            n_etype=n_etype,
+            input_size=concept_dim,
+            hidden_size=concept_dim,
+            output_size=concept_dim,
+            dropout=p_gnn
+        )
 
         self.pooler = MultiheadAttPoolLayer(n_attention_head, sent_dim, concept_dim)
 
@@ -140,7 +155,9 @@ class QAGNN(nn.Module):
             module.weight.data.fill_(1.0)
 
 
-    def forward(self, sent_vecs, concept_ids, node_type_ids, node_scores, adj_lengths, adj, emb_data=None, cache_output=False):
+    def forward(self, sent_vecs, concept_ids, node_type_ids,
+                node_scores, adj_lengths, adj, emb_data=None,
+                cache_output=False):
         """
         sent_vecs: (batch_size, dim_sent)
         concept_ids: (batch_size, n_node)
@@ -164,7 +181,7 @@ class QAGNN(nn.Module):
         node_scores = node_scores - node_scores[:, 0:1, :] #[batch_size, n_node, 1]
         node_scores = node_scores.squeeze(2) #[batch_size, n_node]
         node_scores = node_scores * _mask
-        mean_norm  = (torch.abs(node_scores)).sum(dim=1) / adj_lengths  #[batch_size, ]
+        mean_norm = (torch.abs(node_scores)).sum(dim=1) / adj_lengths  #[batch_size, ]
         node_scores = node_scores / (mean_norm.unsqueeze(1) + 1e-05) #[batch_size, n_node]
         node_scores = node_scores.unsqueeze(2) #[batch_size, n_node, 1]
 
@@ -175,7 +192,7 @@ class QAGNN(nn.Module):
 
         mask = torch.arange(node_type_ids.size(1), device=node_type_ids.device) >= adj_lengths.unsqueeze(1) #1 means masked out
 
-        mask = mask | (node_type_ids == 3) #pool over all KG nodes
+        mask = mask | (node_type_ids == 3)  # pool over all KG nodes
         mask[mask.all(1), 0] = 0  # a temporary solution to avoid zero node
 
         sent_vecs_for_pooler = sent_vecs
@@ -192,34 +209,40 @@ class QAGNN(nn.Module):
 
 
 class LM_QAGNN(nn.Module):
-    def __init__(self,
-                 args,
-                 model_name,
-                 k,
-                 n_ntype,
-                 n_etype,
-                 # n_concept,
-                 concept_dim,
-                 # concept_in_dim,
-                 n_attention_head,
-                 fc_dim, n_fc_layer, p_emb, p_gnn, p_fc,
-                 pretrained_concept_emb=None, freeze_ent_emb=True,
-                 init_range=0.0, encoder_config={}):
+    def __init__(
+            self,
+            args,
+            model_name,
+            k,
+            n_ntype,
+            n_etype,
+            # n_concept,
+            concept_dim,
+            # concept_in_dim,
+            n_attention_head,
+            fc_dim, n_fc_layer, p_emb, p_gnn, p_fc,
+            pretrained_concept_emb=None,
+            freeze_ent_emb=True,
+            init_range=0.0,
+            encoder_config={}
+    ):
         super().__init__()
         print("model")
         self.encoder = TextEncoder(model_name, **encoder_config)
-        self.decoder = QAGNN(args, k, n_ntype, n_etype, self.encoder.sent_dim,
-                             # n_concept,
-                             concept_dim=concept_dim,
-                             # concept_in_dim,
-                             n_attention_head=n_attention_head,
-                             fc_dim=fc_dim,
-                             n_fc_layer=n_fc_layer,
-                             p_emb=p_emb,
-                             p_gnn=p_gnn,
-                             p_fc=p_fc,
-                             pretrained_concept_emb=pretrained_concept_emb, freeze_ent_emb=freeze_ent_emb,
-                             init_range=init_range)
+        self.decoder = QAGNN(
+            args, k, n_ntype, n_etype, self.encoder.sent_dim,
+            # n_concept,
+            concept_dim=concept_dim,
+            # concept_in_dim,
+            n_attention_head=n_attention_head,
+            fc_dim=fc_dim,
+            n_fc_layer=n_fc_layer,
+            p_emb=p_emb,
+            p_gnn=p_gnn,
+            p_fc=p_fc,
+            pretrained_concept_emb=pretrained_concept_emb, freeze_ent_emb=freeze_ent_emb,
+            init_range=init_range
+        )
 
     def forward(self, *inputs, layer_id=-1, cache_output=False, detail=False):
         """
@@ -228,9 +251,11 @@ class LM_QAGNN(nn.Module):
         node_type_ids: (batch_size, num_choice, n_node) -> (batch_size * num_choice, n_node)
         adj_lengths: (batch_size, num_choice)          -> (batch_size * num_choice, )
         adj -> edge_index, edge_type
-            edge_index: list of (batch_size, num_choice) -> list of (batch_size * num_choice, ); each entry is torch.tensor(2, E(variable))
+            edge_index: list of (batch_size, num_choice) -> list of (batch_size * num_choice, );
+                                                            each entry is torch.tensor(2, E(variable))
                                                          -> (2, total E)
-            edge_type:  list of (batch_size, num_choice) -> list of (batch_size * num_choice, ); each entry is torch.tensor(E(variable), )
+            edge_type:  list of (batch_size, num_choice) -> list of (batch_size * num_choice, );
+                                                            each entry is torch.tensor(E(variable), )
                                                          -> (total E, )
         returns: (batch_size, 1)
         """
@@ -238,17 +263,23 @@ class LM_QAGNN(nn.Module):
 
         #Here, merge the batch dimension and the num_choice dimension
         edge_index_orig, edge_type_orig = inputs[-2:]
-        _inputs = [x.view(x.size(0) * x.size(1), *x.size()[2:]) for x in inputs[:-6]] + [x.view(x.size(0) * x.size(1), *x.size()[2:]) for x in inputs[-6:-2]] + [sum(x,[]) for x in inputs[-2:]]
+        _inputs = [x.view(x.size(0) * x.size(1), *x.size()[2:])
+                   for x in inputs[:-6]] + [x.view(x.size(0) * x.size(1), *x.size()[2:])
+                                            for x in inputs[-6:-2]] + [sum(x,[]) for x in inputs[-2:]]
 
         *lm_inputs, concept_ids, node_type_ids, node_scores, adj_lengths, edge_index, edge_type = _inputs
         edge_index, edge_type = self.batch_graph(edge_index, edge_type, concept_ids.size(1))
-        adj = (edge_index.to(node_type_ids.device), edge_type.to(node_type_ids.device)) #edge_index: [2, total_E]   edge_type: [total_E, ]
+        # edge_index: [2, total_E]   edge_type: [total_E, ]
+        adj = (edge_index.to(node_type_ids.device), edge_type.to(node_type_ids.device))
 
         sent_vecs, all_hidden_states = self.encoder(*lm_inputs, layer_id=layer_id)
-        logits, attn = self.decoder(sent_vecs.to(node_type_ids.device),
-                                    concept_ids,
-                                    node_type_ids, node_scores, adj_lengths, adj,
-                                    emb_data=None, cache_output=cache_output)
+        logits, attn = self.decoder(
+            sent_vecs.to(node_type_ids.device),
+            concept_ids,
+            node_type_ids, node_scores, adj_lengths, adj,
+            emb_data=None,
+            cache_output=cache_output
+        )
         logits = logits.view(bs, nc)
         if not detail:
             return logits, attn
@@ -263,8 +294,8 @@ class LM_QAGNN(nn.Module):
         #edge_type_init:  list of (n_examples, ). each entry is torch.tensor(E, )
         n_examples = len(edge_index_init)
         edge_index = [edge_index_init[_i_] + _i_ * n_nodes for _i_ in range(n_examples)]
-        edge_index = torch.cat(edge_index, dim=1) #[2, total_E]
-        edge_type = torch.cat(edge_type_init, dim=0) #[total_E, ]
+        edge_index = torch.cat(edge_index, dim=1)  # [2, total_E]
+        edge_type = torch.cat(edge_type_init, dim=0)  # [total_E, ]
         return edge_index, edge_type
 
 

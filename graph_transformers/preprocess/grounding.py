@@ -13,10 +13,10 @@ __all__ = ['create_matcher_patterns', 'ground']
 
 # the lemma of it/them/mine/.. is -PRON-
 
-blacklist = set(["-PRON-", "actually", "likely", "possibly", "want",
-                 "make", "my", "someone", "sometimes_people", "sometimes", "would", "want_to",
-                 "one", "something", "sometimes", "everybody", "somebody", "could", "could_be"
-                 ])
+blacklist = {"-PRON-", "actually", "likely", "possibly", "want",
+             "make", "my", "someone", "sometimes_people",
+             "sometimes", "would", "want_to", "one", "something",
+             "sometimes", "everybody", "somebody", "could", "could_be"}
 
 
 nltk.download('stopwords', quiet=True)
@@ -38,9 +38,8 @@ def load_cpnet_vocab(cpnet_vocab_path):
 
 
 def create_pattern(nlp, doc, debug=False):
-    pronoun_list = set(["my", "you", "it", "its", "your",
-                        "i", "he", "she", "his", "her", "they",
-                        "them", "their", "our", "we"])
+    pronoun_list = {"my", "you", "it", "its", "your", "i", "he", "she",
+                    "his", "her", "they", "them", "their", "our", "we"}
     # Filtering concepts consisting of all stop words and longer than four words.
     if len(doc) >= 5 or doc[0].text in pronoun_list or doc[-1].text in pronoun_list or \
             all([(token.text in nltk_stopwords or
@@ -95,14 +94,14 @@ def lemmatize(nlp, concept):
 
 
 def load_matcher(nlp, pattern_path):
-    with open(pattern_path, "r", encoding="utf8") as fin:
-        all_patterns = json.load(fin)
+    # with open(pattern_path, "r", encoding="utf8") as fin:
+    #     all_patterns = json.load(fin)
     matcher = Matcher(nlp.vocab)
     # print(all_patterns.items())
-    m = [
-        matcher.add(concept, [pattern])
-        for concept, pattern in all_patterns.items()
-    ]
+    # m = [
+    #     matcher.add(concept, [pattern])
+    #     for concept, pattern in all_patterns.items()
+    # ]
 
     return matcher
 

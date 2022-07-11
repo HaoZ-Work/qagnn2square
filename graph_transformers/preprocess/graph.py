@@ -333,7 +333,7 @@ def concepts_to_adj_matrices_3hop_qa_pair(data):
 
 def get_LM_score(cids, question, model, tokenizer):
     cids = cids[:]
-    cids.insert(0, -1) #QAcontext node
+    cids.insert(0, -1)   # QAcontext node
     # print(cids)
     sents, scores = [], []
     sents = [
@@ -356,8 +356,8 @@ def get_LM_score(cids, question, model, tokenizer):
             seq += [tokenizer.pad_token_id] * (max_len-len(seq))
             input_ids[j] = seq
         input_ids = torch.tensor(input_ids)  # [B, seqlen]
-        mask = (input_ids!=1).long()  # [B, seq_len]
-        #Get LM score
+        mask = (input_ids != 1).long()  # [B, seq_len]
+        # Get LM score
         with torch.no_grad():
             outputs = model(input_ids, attention_mask=mask, masked_lm_labels=input_ids)
             # print("outputs:", outputs)
@@ -367,7 +367,7 @@ def get_LM_score(cids, question, model, tokenizer):
         cur_idx += batch_size
     assert len(sents) == len(scores) == len(cids)
     cid2score = OrderedDict(sorted(list(zip(cids, scores)), key=lambda x: -x[1]))  # score: from high to low
-    print(cid2score)
+    # print(cid2score)
     return cid2score
 
 
