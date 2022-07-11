@@ -1,7 +1,6 @@
 import time
 import numpy as np
 from graph_transformers.modelling import (
-    bert,
     roberta,
     qagnn
 )
@@ -9,8 +8,6 @@ from graph_transformers.preprocess import (
     statement,
     grounding,
     graph,
-    dataloader,
-    data_utils
 )
 
 import torch
