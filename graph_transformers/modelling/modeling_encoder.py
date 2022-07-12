@@ -4,10 +4,12 @@ try:
     from transformers import ALBERT_PRETRAINED_CONFIG_ARCHIVE_MAP
 except:
     pass
-from transformers import AutoModel
+from transformers import AutoModel, OpenAIGPTTokenizer
 # from transformers.modeling_bert import BERT_PRETRAINED_MODEL_ARCHIVE_MAP
 from graph_transformers.modelling.layers import *
-from graph_transformers.preprocess.data_utils import get_gpt_token_num
+
+
+GPT_SPECIAL_TOKENS = ['_start_', '_delimiter_', '_classify_']
 
 MODEL_CLASS_TO_NAME = {
     'gpt': list(OPENAI_GPT_PRETRAINED_CONFIG_ARCHIVE_MAP.keys()),
@@ -80,6 +82,12 @@ class LSTMTextEncoder(nn.Module):
         if self.output_hidden_states:
             outputs = outputs + (all_hidden_states,)
         return outputs
+
+
+def get_gpt_token_num():
+    tokenizer = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
+    tokenizer.add_tokens(GPT_SPECIAL_TOKENS)
+    return len(tokenizer)
 
 
 class TextEncoder(nn.Module):
