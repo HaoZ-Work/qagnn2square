@@ -1,8 +1,9 @@
 *.pyc
-
+*.npy
+*.txt
 .ipynb_checkpoints
-
+*.graph
+*.json
 saved*
-
-# conceptnet data
-graph_transformers/data/
+*.csv
+data*

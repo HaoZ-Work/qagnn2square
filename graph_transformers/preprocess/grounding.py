@@ -94,14 +94,14 @@ def lemmatize(nlp, concept):
 
 
 def load_matcher(nlp, pattern_path):
-    # with open(pattern_path, "r", encoding="utf8") as fin:
-    #     all_patterns = json.load(fin)
+    with open(pattern_path, "r", encoding="utf8") as fin:
+        all_patterns = json.load(fin)
     matcher = Matcher(nlp.vocab)
     # print(all_patterns.items())
-    # m = [
-    #     matcher.add(concept, [pattern])
-    #     for concept, pattern in all_patterns.items()
-    # ]
+    m = [
+        matcher.add(concept, [pattern])
+        for concept, pattern in all_patterns.items()
+    ]
 
     return matcher
 
@@ -110,7 +110,8 @@ def ground_qa_pair(qa_pair):
     global nlp, matcher
     if nlp is None or matcher is None:
         nlp = spacy.load('en_core_web_sm', disable=['ner', 'parser', 'textcat'])
-        nlp.add_pipe('sentencizer')
+        # nlp.add_pipe('sentencizer')
+        nlp.add_pipe(nlp.create_pipe('sentencizer'))
         start = time()
         matcher = load_matcher(nlp, PATTERN_PATH)
         end = time()

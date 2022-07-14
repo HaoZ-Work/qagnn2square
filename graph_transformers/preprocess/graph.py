@@ -9,7 +9,7 @@ import pickle
 from scipy.sparse import csr_matrix, coo_matrix
 from multiprocessing import Pool
 from collections import OrderedDict
-# from utils.my_api_caller import *
+from .kgapi import *
 import time
 
 __all__ = ['generate_graph']
@@ -661,3 +661,226 @@ def coo_to_normalized(adj_path, output_path, max_node_num, num_processes):
 
     print(f'normalized adj saved to {output_path}')
     print()
+
+
+
+
+
+
+########################################################################################
+########################################################################################
+########################################################################################
+########################################################################################
+def concepts2adj_api(node_ids):
+    #global id2relation
+    cids = np.array(node_ids, dtype=np.int32)
+    n_rel = len(id2relation_api)
+    n_node = cids.shape[0]
+    adj = np.zeros((n_rel, n_node, n_node), dtype=np.uint8)
+    subgraph_edges = subgraph(set(cids))[1].values()
+    for e in subgraph_edges:
+        if (nid_to_int(e['in_id']) in cids and nid_to_int(e['out_id']) in cids):
+            if relation2id_api[e['name']] >= 0 and relation2id_api[e['name']] < n_rel:
+                in_idx = np.where(cids == nid_to_int(e['in_id']))[0][0]
+                out_idx = np.where(cids == nid_to_int(e['out_id']))[0][0]
+                adj[relation2id_api[e['name']]][in_idx][out_idx] = 1
+
+
+    # cids += 1  # note!!! index 0 is reserved for padding
+    adj = coo_matrix(adj.reshape(-1, n_node))
+    return adj, cids
+
+def get_LM_score_api(cids, question, model, tokenizer):
+    cids = cids[:]
+    cids.insert(0, -1) #QAcontext node
+    sents, scores = [], []
+    sents = [
+        tokenizer.encode(question.lower(), add_special_tokens=True)
+        if cid == -1
+        else tokenizer.encode(
+            '{} {}.'.format(question.lower(), ' '.join(id2concept[cid].split('_'))),
+            add_special_tokens=True)
+        for cid in cids
+    ]
+    n_cids = len(cids)
+    cur_idx = 0
+    batch_size = 64
+    while cur_idx < n_cids:
+        # Prepare batch
+        input_ids = sents[cur_idx: cur_idx + batch_size]
+        max_len = max([len(seq) for seq in input_ids])
+        for j, seq in enumerate(input_ids):
+            seq += [tokenizer.pad_token_id] * (max_len - len(seq))
+            input_ids[j] = seq
+        input_ids = torch.tensor(input_ids)  # [B, seqlen]
+        mask = (input_ids != 1).long()  # [B, seq_len]
+        # Get LM score
+        with torch.no_grad():
+            outputs = model(input_ids, attention_mask=mask, masked_lm_labels=input_ids)
+            # print("outputs:", outputs)
+            loss = outputs[0]  # [B, ]
+            _scores = list(-loss.detach().cpu().numpy())  # list of float
+        scores += _scores
+        cur_idx += batch_size
+    assert len(sents) == len(scores) == len(cids)
+    cid2score = OrderedDict(sorted(list(zip(cids, scores)), key=lambda x: -x[1]))  # score: from high to low
+    # print(cid2score)
+    return cid2score
+
+
+def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1_api(data):
+    qc_ids, ac_ids, question = data
+    qa_nodes = set(qc_ids) | set(ac_ids)
+    extra_nodes = set()
+    subgraph_nodes = list(subgraph(set(qa_nodes))[0].keys())
+    extra_nodes = set([nid_to_int(i) for i in subgraph_nodes]) - qa_nodes
+
+    extra_nodes = extra_nodes - qa_nodes
+
+    return (sorted(qc_ids), sorted(ac_ids), question, sorted(extra_nodes))
+
+def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2_api(data, model, tokenizer):
+    qc_ids, ac_ids, question, extra_nodes = data
+    cid2score = get_LM_score_api(qc_ids+ac_ids+extra_nodes, question, model, tokenizer)
+    return (qc_ids, ac_ids, question, extra_nodes, cid2score)
+
+def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3_api(data):
+    qc_ids, ac_ids, question, extra_nodes, cid2score = data
+    schema_graph = qc_ids + ac_ids + sorted(extra_nodes, key=lambda x: -cid2score[x]) #score: from high to low
+    arange = np.arange(len(schema_graph))
+    qmask = arange < len(qc_ids)
+    amask = (arange >= len(qc_ids)) & (arange < (len(qc_ids) + len(ac_ids)))
+    adj, concepts = concepts2adj_api(schema_graph)
+    return {'adj': adj, 'concepts': concepts, 'qmask': qmask, 'amask': amask, 'cid2score': cid2score}
+
+
+def generate_adj_data_from_grounded_concepts__use_LM_api(
+        statement_json,
+        grounded,
+        cpnet_graph_path,
+        cpnet_vocab_path,
+        model,
+        tokenizer,
+        num_processes=1):
+    """
+    This function will save
+        (1) adjacency matrics (each in the form of a (R*N, N) coo sparse matrix)
+        (2) concepts ids
+        (3) qmask that specifices whether a node is a question concept
+        (4) amask that specifices whether a node is a answer concept
+        (5) cid2score that maps a concept id to its relevance score given the QA context
+    to the output path in python pickle format
+
+    statement_json: json (dict)
+    grounded: 5 dicts as
+    cpnet_graph_path: str
+    cpnet_vocab_path: str
+
+    num_processes: int
+    """
+    print(f'generating adj data ...')
+
+    global concept2id, id2concept, relation2id, id2relation, cpnet_simple, cpnet
+    if any(x is None for x in [concept2id, id2concept, relation2id, id2relation]):
+        load_resources(cpnet_vocab_path)
+    if cpnet is None or cpnet_simple is None:
+        load_cpnet(cpnet_graph_path)
+
+    qa_data = []
+    qa_data_api = []
+
+    #lines_state = statement_json
+
+
+    for ex in grounded:
+
+        # use API to get q_ids and a_ids (?)
+        # API input :  entity, output : id
+        q_ids = set(concept2id[c] for c in ex['qc'])
+        a_ids = set(concept2id[c] for c in ex['ac'])
+        q_ids = q_ids - a_ids
+
+        q_ids_api = set(concept2id_api(c) for c in ex['qc'])
+        a_ids_api = set(concept2id_api(c) for c in ex['ac'])
+        q_ids_api = q_ids_api - a_ids_api
+
+        statement_obj = statement_json
+        QAcontext = "{} {}.".format(statement_obj['question'], ex['ans'])
+        qa_data.append((q_ids, a_ids, QAcontext))
+        qa_data_api.append((q_ids_api, a_ids_api, QAcontext))
+        # one recorfing of qa_data:
+        #(q_ids, a_ids, QAcontext)
+        #({28866, 2411, 4363, 102159, 15092, 401240, 74683, 2527}, {18487}, 'There is a star at the center of what group of celestial bodies? hollywood.')
+    # r = concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1(qa_data[0])
+    # r_api = concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1_api(qa_data_api[0])
+    #print('check point')
+
+
+    # start = time.time()
+    # with Pool(num_processes) as p:
+    #     res1 = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1, qa_data), total=len(qa_data)))
+    #     # res1_api = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1_api, qa_data_api), total=len(qa_data)))
+    #
+    # end = time.time()
+
+    # print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1 takes {end-start}")
+
+    start = time.time()
+    with Pool(num_processes) as p:
+        # res1 = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1, qa_data), total=len(qa_data)))
+        res1_api = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1_api, qa_data_api), total=len(qa_data_api)))
+    end = time.time()
+
+    print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1_api takes {end-start}")
+
+
+
+    res2 = []
+    res2_api = []
+    # start = time.time()
+    # for j, _data in enumerate(res1):
+    #     if j % 100 == 0: print (j)
+    #     res2.append(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2(_data))
+    #     # res2_api.append(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2_api(_data))
+    #
+    # end = time.time()
+    #
+    # print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2 takes {end-start}")
+
+    start = time.time()
+    for j, _data in enumerate(res1_api):
+        if j % 100 == 0: print (j)
+        # res2.append(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2(_data))
+        res2_api.append(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2_api(_data,model, tokenizer))
+
+    end = time.time()
+
+    print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2_api takes {end-start}")
+
+    # res3 = concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3(res2[0])
+    # res3_api = concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3_api(res2_api[0])
+
+    # start = time.time()
+    # with Pool(num_processes) as p:
+    #     res3 = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3, res2), total=len(res2)))
+    #     #res3_api = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3_api, res2_api), total=len(res2_api)))
+    # end = time.time()
+    # print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3 takes {end-start}")
+
+    start = time.time()
+    with Pool(num_processes) as p:
+        res3_api = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3_api, res2_api), total=len(res2_api)))
+
+    # res3_api = []
+    # for r in res2_api:
+    #     res3_api.append(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3_api(r))
+    end = time.time()
+
+    print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3_api takes {end-start}")
+
+    # res is a list of responses
+
+    print('check point!!!!!')
+    print(f' get adj data finished')
+
+    return res3_api

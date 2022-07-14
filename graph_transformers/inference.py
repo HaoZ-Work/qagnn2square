@@ -1,5 +1,7 @@
 import time
 import numpy as np
+from tqdm import tqdm
+
 from graph_transformers.modelling import (
     roberta,
     qagnn
@@ -63,6 +65,8 @@ class Inference:
         # get the graph
         if self.use_lm:
             model, tokenizer = self._load_lm()
+            # enable the api with
+            #graph_adj = graph.generate_adj_data_from_grounded_concepts__use_LM_api()
             graph_adj = graph.generate_adj_data_from_grounded_concepts__use_LM(
                 statements,
                 grounded,
@@ -97,6 +101,18 @@ class Inference:
                 tokens_a.pop()
             else:
                 tokens_b.pop()
+    def convert_features_to_tensors(self,features):
+
+        all_input_ids = torch.tensor(self.select_field(features, 'input_ids'), dtype=torch.long)
+        all_input_mask = torch.tensor(self.select_field(features, 'input_mask'), dtype=torch.long)
+        all_segment_ids = torch.tensor(self.select_field(features, 'segment_ids'), dtype=torch.long)
+        all_output_mask = torch.tensor(self.select_field(features, 'output_mask'), dtype=torch.bool)
+        all_label = torch.tensor([f.label for f in features], dtype=torch.long)
+        return all_input_ids, all_input_mask, all_segment_ids, all_output_mask, all_label
+
+    def select_field(self, features, field):
+        return [[choice[field] for choice in feature.choices_features] for feature in features]
+
 
     def _convert_examples_to_features(
             self,
@@ -125,12 +141,24 @@ class Inference:
 
         class InputFeatures(object):
 
-            def __init__(self, input_ids, input_mask, segment_ids, output_mask, label):
+            # def __init__(self, input_ids, input_mask, segment_ids, output_mask, label):
+            #
+            #     self.input_ids = input_ids,
+            #     self.input_mask = input_mask,
+            #     self.segment_ids = segment_ids,
+            #     self.output_mask = output_mask,
+            #     self.label = label
+            def __init__(self,  choices_features, label):
 
-                self.input_ids = input_ids,
-                self.input_mask = input_mask,
-                self.segment_ids = segment_ids,
-                self.output_mask = output_mask,
+                self.choices_features = [
+                    {
+                        'input_ids': input_ids,
+                        'input_mask': input_mask,
+                        'segment_ids': segment_ids,
+                        'output_mask': output_mask,
+                    }
+                    for _, input_ids, input_mask, segment_ids, output_mask in choices_features
+                ]
                 self.label = label
 
         question = examples["question"]
@@ -218,22 +246,140 @@ class Inference:
             label = label_map[labels]
 
             # convert to tensors
-            input_ids = torch.tensor(input_ids, dtype=torch.long)
-            input_mask = torch.tensor(input_mask, dtype=torch.long)
-            segment_ids = torch.tensor(segment_ids, dtype=torch.long)
-            output_mask = torch.tensor(output_mask, dtype=torch.bool)
-            label = torch.tensor([label], dtype=torch.long)
+            # input_ids = torch.tensor(input_ids, dtype=torch.long)
+            # input_mask = torch.tensor(input_mask, dtype=torch.long)
+            # segment_ids = torch.tensor(segment_ids, dtype=torch.long)
+            # output_mask = torch.tensor(output_mask, dtype=torch.bool)
+            # label = torch.tensor([label], dtype=torch.long)
 
-            # choices_features.append((tokens, input_ids, input_mask, segment_ids, output_mask))
-            features.append(InputFeatures(
-                input_ids=input_ids,
-                input_mask=input_mask,
-                segment_ids=segment_ids,
-                output_mask=output_mask,
+
+
+            choices_features.append((tokens, input_ids, input_mask, segment_ids, output_mask))
+        features.append(InputFeatures(
+                choices_features=choices_features,
                 label=label
             ))
+        print("check point")
 
         return features
+
+    def load_sparse_adj_data_with_contextnode(self,adj_concept_pairs , max_node_num, num_choice, ):
+        n_samples = len(adj_concept_pairs)  # this is actually n_questions x n_choices
+        edge_index, edge_type = [], []
+        adj_lengths = torch.zeros((n_samples,), dtype=torch.long)
+        concept_ids = torch.full((n_samples, max_node_num), 1, dtype=torch.long)
+        node_type_ids = torch.full((n_samples, max_node_num), 2, dtype=torch.long)  # default 2: "other node"
+        node_scores = torch.zeros((n_samples, max_node_num, 1), dtype=torch.float)
+
+        adj_lengths_ori = adj_lengths.clone()
+        for idx, _data in tqdm(enumerate(adj_concept_pairs), total=n_samples, desc='loading adj matrices'):
+            adj, concepts, qm, am, cid2score = _data['adj'], _data['concepts'], _data['qmask'], _data['amask'], _data[
+                'cid2score']
+            # adj: e.g. <4233x249 (n_nodes*half_n_rels x n_nodes) sparse matrix of type '<class 'numpy.bool'>' with 2905 stored elements in COOrdinate format>
+            # concepts: np.array(num_nodes, ), where entry is concept id
+            # qm: np.array(num_nodes, ), where entry is True/False
+            # am: np.array(num_nodes, ), where entry is True/False
+            # concepts = np.array(list(set(concepts))) ## TODO: should be removec after fixing the api concept2id_api ()
+            assert len(concepts) == len(set(concepts))
+            qam = qm | am
+            # sanity check: should be T,..,T,F,F,..F
+            assert qam[0] == True
+            F_start = False
+            for TF in qam:
+                if TF == False:
+                    F_start = True
+                else:
+                    assert F_start == False
+            num_concept = min(len(concepts),
+                              max_node_num - 1) + 1  # this is the final number of nodes including contextnode but excluding PAD
+            adj_lengths_ori[idx] = len(concepts)
+            adj_lengths[idx] = num_concept
+
+            # Prepare nodes
+            concepts = concepts[:num_concept - 1]
+            concept_ids[idx, 1:num_concept] = torch.tensor(
+                concepts + 1)  # To accomodate contextnode, original concept_ids incremented by 1
+            concept_ids[idx, 0] = 0  # this is the "concept_id" for contextnode
+
+            # Prepare node scores
+            if (cid2score is not None):
+                for _j_ in range(num_concept):
+                    _cid = int(concept_ids[idx, _j_]) - 1
+                    assert _cid in cid2score
+                    node_scores[idx, _j_, 0] = torch.tensor(cid2score[_cid])
+
+            # Prepare node types
+            node_type_ids[idx, 0] = 3  # contextnode
+            node_type_ids[idx, 1:num_concept][torch.tensor(qm, dtype=torch.bool)[:num_concept - 1]] = 0
+            node_type_ids[idx, 1:num_concept][torch.tensor(am, dtype=torch.bool)[:num_concept - 1]] = 1
+
+            # Load adj
+            ij = torch.tensor(adj.row, dtype=torch.int64)  # (num_matrix_entries, ), where each entry is coordinate
+            k = torch.tensor(adj.col, dtype=torch.int64)  # (num_matrix_entries, ), where each entry is coordinate
+            n_node = adj.shape[1]
+            half_n_rel = adj.shape[0] // n_node
+            i, j = ij // n_node, ij % n_node
+
+            # Prepare edges
+            i += 2;
+            j += 1;
+            k += 1  # **** increment coordinate by 1, rel_id by 2 ****
+            extra_i, extra_j, extra_k = [], [], []
+            for _coord, q_tf in enumerate(qm):
+                _new_coord = _coord + 1
+                if _new_coord > num_concept:
+                    break
+                if q_tf:
+                    extra_i.append(0)  # rel from contextnode to question concept
+                    extra_j.append(0)  # contextnode coordinate
+                    extra_k.append(_new_coord)  # question concept coordinate
+            for _coord, a_tf in enumerate(am):
+                _new_coord = _coord + 1
+                if _new_coord > num_concept:
+                    break
+                if a_tf:
+                    extra_i.append(1)  # rel from contextnode to answer concept
+                    extra_j.append(0)  # contextnode coordinate
+                    extra_k.append(_new_coord)  # answer concept coordinate
+
+            half_n_rel += 2  # should be 19 now
+            if len(extra_i) > 0:
+                i = torch.cat([i, torch.tensor(extra_i)], dim=0)
+                j = torch.cat([j, torch.tensor(extra_j)], dim=0)
+                k = torch.cat([k, torch.tensor(extra_k)], dim=0)
+            ########################
+
+            mask = (j < max_node_num) & (k < max_node_num)
+            i, j, k = i[mask], j[mask], k[mask]
+            i, j, k = torch.cat((i, i + half_n_rel), 0), torch.cat((j, k), 0), torch.cat((k, j),
+                                                                                         0)  # add inverse relations
+            edge_index.append(torch.stack([j, k], dim=0))  # each entry is [2, E]
+            edge_type.append(i)  # each entry is [E, ]
+
+        # with open(cache_path, 'wb') as f:
+        #     pickle.dump([adj_lengths_ori, concept_ids, node_type_ids, node_scores, adj_lengths, edge_index, edge_type, half_n_rel], f)
+
+        ori_adj_mean = adj_lengths_ori.float().mean().item()
+        ori_adj_sigma = np.sqrt(((adj_lengths_ori.float() - ori_adj_mean) ** 2).mean().item())
+        print('| ori_adj_len: mu {:.2f} sigma {:.2f} | adj_len: {:.2f} |'.format(ori_adj_mean, ori_adj_sigma,
+                                                                                 adj_lengths.float().mean().item()) +
+              ' prune_rate： {:.2f} |'.format((adj_lengths_ori > adj_lengths).float().mean().item()) +
+              ' qc_num: {:.2f} | ac_num: {:.2f} |'.format((node_type_ids == 0).float().sum(1).mean().item(),
+                                                          (node_type_ids == 1).float().sum(1).mean().item()))
+
+        edge_index = list(map(list, zip(*(iter(
+            edge_index),) * num_choice)))  # list of size (n_questions, n_choices), where each entry is tensor[2, E] #this operation corresponds to .view(n_questions, n_choices)
+        edge_type = list(map(list, zip(*(iter(
+            edge_type),) * num_choice)))  # list of size (n_questions, n_choices), where each entry is tensor[E, ]
+
+        concept_ids, node_type_ids, node_scores, adj_lengths = [x.view(-1, num_choice, *x.size()[1:]) for x in
+                                                                (concept_ids, node_type_ids, node_scores, adj_lengths)]
+        # concept_ids: (n_questions, num_choice, max_node_num)
+        # node_type_ids: (n_questions, num_choice, max_node_num)
+        # node_scores: (n_questions, num_choice, max_node_num)
+        # adj_lengths: (n_questions,　num_choice)
+        return concept_ids, node_type_ids, node_scores, adj_lengths, (edge_index, edge_type)  # , half_n_rel * 2 + 1
+
 
     def _predict(self):
 
@@ -242,43 +388,51 @@ class Inference:
         tokenizer = AutoTokenizer.from_pretrained("roberta-base")
 
         assert self.model_path is not None
-        print("check")
+
         # only for medqa data
-        # cp_emb = [np.load("data/tzw.ent.npy")]
-        # cp_emb = torch.tensor(np.concatenate(cp_emb, 1), dtype=torch.float)
-        # concept_num, concept_dim = cp_emb.size(0), cp_emb.size(1)
-        # print('| num_concepts: {} |'.format(concept_num))
-        #
-        # print(concept_num, concept_dim)
+        cp_emb = [np.load("data/tzw.ent.npy")]
+        cp_emb = torch.tensor(np.concatenate(cp_emb, 1), dtype=torch.float)
+        concept_num, concept_dim = cp_emb.size(0), cp_emb.size(1)
+        print('| num_concepts: {} |'.format(concept_num))
+
+        print(concept_num, concept_dim)
 
         # load the model
         model_state_dict, old_args = torch.load(self.model_path, map_location=torch.device('cpu'))
 
         # # create the model template
         model = qagnn.LM_QAGNN(
-            old_args,
-            old_args.encoder,
-            k=old_args.k,
-            n_ntype=4,
-            n_etype=old_args.num_relation,
+            # old_args,
+            # old_args.encoder,
+            # k=old_args.k,
+            # n_ntype=4,
+            # n_etype=old_args.num_relation,
             # n_concept=concept_num,
-            concept_dim=old_args.gnn_dim,
+            # concept_dim=old_args.gnn_dim,
             # concept_in_dim=concept_dim,
-            n_attention_head=old_args.att_head_num,
-            fc_dim=old_args.fc_dim,
-            n_fc_layer=old_args.fc_layer_num,
-            p_emb=old_args.dropouti,
-            p_gnn=old_args.dropoutg,
-            p_fc=old_args.dropoutf,
+            # n_attention_head=old_args.att_head_num,
+            # fc_dim=old_args.fc_dim,
+            # n_fc_layer=old_args.fc_layer_num,
+            # p_emb=old_args.dropouti,
+            # p_gnn=old_args.dropoutg,
+            # p_fc=old_args.dropoutf,
             # pretrained_concept_emb=cp_emb,
-            freeze_ent_emb=old_args.freeze_ent_emb,
+            # freeze_ent_emb=old_args.freeze_ent_emb,
+            # init_range=old_args.init_range,
+            # encoder_config={}
+            old_args, old_args.encoder, k=old_args.k, n_ntype=4, n_etype=old_args.num_relation, n_concept=concept_num,
+            concept_dim=old_args.gnn_dim,
+            concept_in_dim=concept_dim,
+            n_attention_head=old_args.att_head_num, fc_dim=old_args.fc_dim, n_fc_layer=old_args.fc_layer_num,
+            p_emb=old_args.dropouti, p_gnn=old_args.dropoutg, p_fc=old_args.dropoutf,
+            pretrained_concept_emb=cp_emb, freeze_ent_emb=old_args.freeze_ent_emb,
             init_range=old_args.init_range,
             encoder_config={}
         )
         print("after loading")
 
         # load the model
-        model.load_state_dict(model_state_dict)
+        model.load_state_dict(model_state_dict,False)
 
         # cpu and gpu setting
         # if torch.cuda.device_count() >= 2 and args.cuda:
@@ -311,16 +465,22 @@ class Inference:
             pad_token_segment_id=4 if model_type in ['xlnet'] else 0,
             sequence_b_segment_id=0 if model_type in ['roberta', 'albert'] else 1
         )
-        print(features)
-        *input_data, labels = features
+        *data_tensors, all_label = self.convert_features_to_tensors(features)
 
-        logits, _, = model(*input_data)
+        *test_decoder_data, test_adj_data = self.load_sparse_adj_data_with_contextnode(graphs, max_node_num=200,
+                                                                                            num_choice=5, )
+
+        # print(features)
+        # *input_data, labels = features
+        input_data = [*data_tensors,*test_decoder_data, *test_adj_data]
+
+        logits, attn, = model(*input_data)
         predictions = logits.argmax(1)  # [bsize, ]
         print(f"The prediction of current input is : {predictions}")
 
 
 if __name__ == '__main__':
-    model_path = "data/csqa_model_hf3.4.0.pt"
+    model_path = "saved_models/csqa_model_hf3.4.0.pt"
     question = "There is a star at the center of what group of celestial bodies?"
     choices = ["hollywood", "skyline", "outer space", "constellation", "solar system"]
     input = {"question": question, "choices": choices}

@@ -572,27 +572,65 @@ class MatrixAttention(nn.Module):
         return self._similarity_function(tiled_matrix_1, tiled_matrix_2)
 
 
+#class CustomizedEmbedding(nn.Module):
+ #     def __init__(self,
+ #                  # concept_num,
+ #                  # concept_in_dim,
+ #                  concept_out_dim, use_contextualized=False,
+ #                  pretrained_concept_emb=None, freeze_ent_emb=True, scale=1.0, init_range=0.02):
+ #         super().__init__()
+ #         self.scale = scale
+ #         self.use_contextualized = use_contextualized
+ #         # if not use_contextualized:
+ #         #     self.emb = nn.Embedding(concept_num, concept_in_dim)
+ #         #     if pretrained_concept_emb is not None:
+ #         #         self.emb.weight.data.copy_(pretrained_concept_emb)
+ #         #     else:
+ #         #         self.emb.weight.data.normal_(mean=0.0, std=init_range)
+ #         #     if freeze_ent_emb:
+ #         #         freeze_net(self.emb)
+ #
+ #         # if concept_in_dim != concept_out_dim:
+ #         #     self.cpt_transform = nn.Linear(concept_in_dim, concept_out_dim)
+ #         #     self.activation = GELU()
+ #
+ #     def forward(self, index, contextualized_emb=None):
+ #         """
+ #         index: size (bz, a)
+ #         contextualized_emb: size (bz, b, emb_size) (optional)
+ #         """
+ #         if contextualized_emb is not None:
+ #             assert index.size(0) == contextualized_emb.size(0)
+ #             if hasattr(self, 'cpt_transform'):
+ #                 contextualized_emb = self.activation(self.cpt_transform(contextualized_emb * self.scale))
+ #             else:
+ #                 contextualized_emb = contextualized_emb * self.scale
+ #             emb_dim = contextualized_emb.size(-1)
+ #             return contextualized_emb.gather(1, index.unsqueeze(-1).expand(-1, -1, emb_dim))
+ #         else:
+ #             if hasattr(self, 'cpt_transform'):
+ #                 return self.activation(self.cpt_transform(self.emb(index) * self.scale))
+ #             else:
+ #                 return self.emb(index) * self.scale
+
 class CustomizedEmbedding(nn.Module):
-    def __init__(self,
-                 # concept_num,
-                 # concept_in_dim,
-                 concept_out_dim, use_contextualized=False,
+    def __init__(self, concept_num, concept_in_dim, concept_out_dim, use_contextualized=False,
                  pretrained_concept_emb=None, freeze_ent_emb=True, scale=1.0, init_range=0.02):
         super().__init__()
         self.scale = scale
         self.use_contextualized = use_contextualized
-        # if not use_contextualized:
-        #     self.emb = nn.Embedding(concept_num, concept_in_dim)
-        #     if pretrained_concept_emb is not None:
-        #         self.emb.weight.data.copy_(pretrained_concept_emb)
-        #     else:
-        #         self.emb.weight.data.normal_(mean=0.0, std=init_range)
-        #     if freeze_ent_emb:
-        #         freeze_net(self.emb)
+        if not use_contextualized:
+            self.emb = nn.Embedding(concept_num, concept_in_dim)
+            if pretrained_concept_emb is not None:
+                self.emb.weight.data.copy_(pretrained_concept_emb)
+            else:
+                self.emb.weight.data.normal_(mean=0.0, std=init_range)
+            if freeze_ent_emb:
+                freeze_net(self.emb)
 
-        # if concept_in_dim != concept_out_dim:
-        #     self.cpt_transform = nn.Linear(concept_in_dim, concept_out_dim)
-        #     self.activation = GELU()
+        if concept_in_dim != concept_out_dim:
+            self.cpt_transform = nn.Linear(concept_in_dim, concept_out_dim)
+            self.activation = GELU()
 
     def forward(self, index, contextualized_emb=None):
         """
@@ -612,8 +650,6 @@ class CustomizedEmbedding(nn.Module):
                 return self.activation(self.cpt_transform(self.emb(index) * self.scale))
             else:
                 return self.emb(index) * self.scale
-
-
 def run_test():
     print('testing BilinearAttentionLayer...')
     att = BilinearAttentionLayer(100, 20)
