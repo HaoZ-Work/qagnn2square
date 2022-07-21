@@ -478,7 +478,8 @@ class QAGNN(nn.Module):
         mask = mask | (node_type_ids == 3) #pool over all KG nodes
         mask[mask.all(1), 0] = 0  # a temporary solution to avoid zero node
 
-        sent_vecs_for_pooler = sent_vecs
+        sent_vecs_for_pooler = sent_vecs # (5,1024)
+        # sent_vecs_for_pooler (5,max_node:200,node_dim :200)
         graph_vecs, pool_attn = self.pooler(sent_vecs_for_pooler, gnn_output, mask)
 
         if cache_output:

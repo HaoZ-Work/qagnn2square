@@ -331,6 +331,7 @@ class MultiheadAttPoolLayer(nn.Module):
         super().__init__()
         assert d_k_original % n_head == 0  # make sure the outpute dimension equals to d_k_origin
         self.n_head = n_head
+        print("n head ",n_head)
         self.d_k = d_k_original // n_head
         self.d_v = d_k_original // n_head
 
@@ -372,7 +373,7 @@ class MultiheadAttPoolLayer(nn.Module):
         output = output.view(n_head, bs, d_v)
         output = output.permute(1, 0, 2).contiguous().view(bs, n_head * d_v)  # (b, n*dv)
         output = self.dropout(output)
-        return output, attn
+        return output, attn  # attn (n*b, l) n =2, b= 5
 
 
 class TypedMultiheadAttPoolLayer(nn.Module):
