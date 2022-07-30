@@ -8,6 +8,9 @@ from tqdm import tqdm
 import networkx as nx
 import spacy
 from spacy.matcher import Matcher
+from itertools import product
+
+
 
 from graph_transformers_v2.modelling import (
     roberta_model,
@@ -17,6 +20,7 @@ from graph_transformers_v2.preprocess import (
     statement,
     grounding,
     graph,
+    kgapi
 )
 
 import torch
@@ -40,7 +44,7 @@ MODEL_CLASS_TO_NAME = {
 }
 
 
-DATA_DIR = "../graph_transformers/data/"
+DATA_DIR = "/work/home/kurse/kurs00056/hz53kahe/gnn/data/"
 
 CPNET_VOCAB = DATA_DIR+"concept.txt"
 CPNET_PATH = DATA_DIR+"conceptnet.en.pruned.graph"
@@ -81,6 +85,7 @@ class Inference:
             'en_core_web_sm',
             disable=['ner', 'parser', 'textcat'])
         nlp.add_pipe('sentencizer')
+        # nlp.add_pipe(nlp.create_pipe('sentencizer'))
         with open(PATTERN_PATH, "r", encoding="utf8") as fin:
             all_patterns = json.load(fin)
         matcher = Matcher(nlp.vocab)
@@ -487,6 +492,8 @@ class Inference:
     def _predict(self):
         start = time.time()
         statements, grounded, graphs = self._prepare_data()
+        self.graphs = graphs
+        self.grounded = grounded
         model_type = self.lm_model.config.model_type
         assert self.model_path is not None
 
@@ -543,6 +550,62 @@ class Inference:
         # print(f"The prediction of current input is : {self.inputs[predictions.detach().cpu().numpy()[0]][1]}")
         # return self.inputs[predictions.detach().cpu().numpy()[0]][1]
 
+    def _get_info(self):
+
+
+        def node_info(node_id: int, score_map: dict, grounded: dict):
+            node = dict()
+            node['id'] = node_id
+            node['name'] = kgapi.id2concept_api(np.abs(node_id))
+            node['description'] = ""
+            node['q_node'] = False
+            node['ans_node'] = False
+            if node['name'] in grounded['qc']:
+                node['q_node'] = True
+            elif node['name'] in grounded['ac']:
+                node['ans_node'] = True
+            node['width'] = score_map[node_id]
+            return node
+
+        def edge_info(node_ids: list):
+            pair_list = [list(i) for i in list(product(node_ids, node_ids))]
+            edges = kgapi.get_edges_by_node_pairs(pair_list)
+
+            re = dict()
+            for i in edges.items():
+                tmp_dict = dict()
+                tmp_dict['source'] = kgapi.nid_to_int(i[1]['in_id'])
+                tmp_dict['target'] = kgapi.nid_to_int(i[1]['out_id'])
+                tmp_dict['weight'] = i[1]['weight']
+                tmp_dict['label'] = i[1]['name']
+                re[i[0]] = tmp_dict
+            return re
+
+        info = dict()
+        info['nodes'] = dict()
+        info['scores'] = dict()
+        info['edges'] = dict()
+        for i in range(len(self.graphs)):
+            score = self.graphs[i]['cid2score']
+            keys = [int(k) for k in score.keys()]
+            values = [float(v) for v in score.values()]
+            # score = json.dumps(dict(zip(keys, values)),indent=4)
+            score = dict(zip(keys, values))
+            info['nodes']['statement_' + str(i)] = dict()
+            for k in keys:
+                info['nodes']['statement_' + str(i)][str(k)] = node_info(k, score, self.grounded[i])
+
+            info['scores']['statement_' + str(i)] = score
+
+            info['edges']['statement_' + str(i)] = dict()
+            info['edges']['statement_' + str(i)] = edge_info(keys)
+
+        info = json.dumps(info, indent=4)
+        with open('info_demo.json', 'w') as f:
+            f.write(info)
+
+        return info
+
 
 if __name__ == '__main__':
     model_path = DATA_DIR+"csqa_model_hf3.4.0.pt"
@@ -559,5 +622,6 @@ if __name__ == '__main__':
     start = time.time()
     inf = Inference(inputs=input, model_path=model_path)
     inf._predict()
+    inf._get_info()
     end = time.time()
     print("Inference time: ", end-start)
