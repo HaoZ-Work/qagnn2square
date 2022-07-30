@@ -12,6 +12,9 @@ from collections import OrderedDict
 from .kgapi import *
 import time
 
+from itertools import product
+
+
 __all__ = ['generate_graph']
 
 concept2id = None
@@ -371,6 +374,50 @@ def get_LM_score(cids, question, model, tokenizer):
     return cid2score
 
 
+
+
+
+# def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1(data):
+#     qc_ids, ac_ids, question = data
+#     qa_nodes = set(qc_ids) | set(ac_ids)
+#     extra_nodes = set()
+#     # extra_nodes = set([nid_to_int(i) for i in subgraph_nodes]) - qa_nodes
+#     #
+#     # extra_nodes = extra_nodes - qa_nodes
+#
+#     for qid in qa_nodes:
+#         for aid in qa_nodes:
+#             # use APi to get extra nodes(?)
+#             if qid != aid:
+#                 # print(qid, aid)
+#                 # subgraph_edges = list(data_api.get_comprehensive_subgraph([qid])[1].values())
+#                 # print("df", subgraph_edges)
+#                 subgraph_nodes_qid = get_subgraph(
+#                     [qid],
+#                 )
+#                 # print("ef", subgraph_nodes_qid)
+#                 subgraph_nodes_aid = get_subgraph(
+#                     [aid],
+#                 )
+#                 # print(subgraph_nodes_qid)
+#                 # print(len(subgraph_nodes_qid))
+#                 # print(subgraph_nodes_aid)
+#                 # print(len(subgraph_nodes_aid))
+#                 extra_nodes |= set(subgraph_nodes_qid) & set(subgraph_nodes_aid)
+#                 # print(extra_nodes)
+#     # extra_nodes = set([int(i.replace('n', '')) for i in subgraph_nodes]) - qa_nodes
+#     extra_nodes = extra_nodes - qa_nodes
+#     # print("xtra :", extra_nodes)
+#     # print(len(extra_nodes))
+#
+#     qc_ids = set(qc_ids)
+#     ac_ids = set(ac_ids)
+#     extra_nodes = set([int(_id.replace('n', '')) for _id in extra_nodes])
+#
+#     return (sorted(qc_ids), sorted(ac_ids), question, sorted(extra_nodes))
+#
+
+
 def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1(data):
     qc_ids, ac_ids, question = data
     qa_nodes = set(qc_ids) | set(ac_ids)
@@ -400,6 +447,7 @@ def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3(data):
     qmask = arange < len(qc_ids)
     amask = (arange >= len(qc_ids)) & (arange < (len(qc_ids) + len(ac_ids)))
     adj, concepts = concepts2adj(schema_graph)
+
     return {'adj': adj, 'concepts': concepts, 'qmask': qmask, 'amask': amask, 'cid2score': cid2score}
 
 
@@ -595,8 +643,16 @@ def generate_adj_data_from_grounded_concepts__use_LM(
     end = time.time()
     print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3 takes {end-start}")
 
+
+    # node_list = [167799,1930,1972,20074,1973,23633,25135,1726,17930,16416,1974,1938,3018,19286]
+    # node_list = [1930,5806,20909,4647,191166,661085,2738,256,12440,19060,74544]
+    # print([id2concept[i] for i in node_list])
+
+
     print('check point!!!!!')
     print(f' get adj data finished')
+    # for i in range(len(res3)):
+    #     topk_idx = torch
 
     return res3
 
@@ -671,24 +727,41 @@ def coo_to_normalized(adj_path, output_path, max_node_num, num_processes):
 ########################################################################################
 ########################################################################################
 ########################################################################################
+# def concepts2adj_api(node_ids):
+#     #global id2relation
+#     cids = np.array(node_ids, dtype=np.int32)
+#     n_rel = len(id2relation_api)
+#     n_node = cids.shape[0]
+#     adj = np.zeros((n_rel, n_node, n_node), dtype=np.uint8)
+#     subgraph_edges = subgraph(set(cids))[1].values()
+#     for e in subgraph_edges:
+#         if (nid_to_int(e['in_id']) in cids and nid_to_int(e['out_id']) in cids):
+#             if relation2id_api[e['name']] >= 0 and relation2id_api[e['name']] < n_rel:
+#                 in_idx = np.where(cids == nid_to_int(e['in_id']))[0][0]
+#                 out_idx = np.where(cids == nid_to_int(e['out_id']))[0][0]
+#                 adj[relation2id_api[e['name']]][in_idx][out_idx] = 1
+#
+#
+#     # cids += 1  # note!!! index 0 is reserved for padding
+#     adj = coo_matrix(adj.reshape(-1, n_node))
+#     return adj, cids
+
+
 def concepts2adj_api(node_ids):
     #global id2relation
     cids = np.array(node_ids, dtype=np.int32)
     n_rel = len(id2relation_api)
     n_node = cids.shape[0]
     adj = np.zeros((n_rel, n_node, n_node), dtype=np.uint8)
-    subgraph_edges = subgraph(set(cids))[1].values()
-    for e in subgraph_edges:
-        if (nid_to_int(e['in_id']) in cids and nid_to_int(e['out_id']) in cids):
-            if relation2id_api[e['name']] >= 0 and relation2id_api[e['name']] < n_rel:
-                in_idx = np.where(cids == nid_to_int(e['in_id']))[0][0]
-                out_idx = np.where(cids == nid_to_int(e['out_id']))[0][0]
-                adj[relation2id_api[e['name']]][in_idx][out_idx] = 1
+
+    node_pairs_list = [list(i) for i in list(product(node_ids,node_ids))]
 
 
     # cids += 1  # note!!! index 0 is reserved for padding
     adj = coo_matrix(adj.reshape(-1, n_node))
     return adj, cids
+
+
 
 def get_LM_score_api(cids, question, model, tokenizer):
     cids = cids[:]
@@ -728,16 +801,87 @@ def get_LM_score_api(cids, question, model, tokenizer):
     return cid2score
 
 
+# def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1_api(data):
+#     qc_ids, ac_ids, question = data
+#     qa_nodes = set(qc_ids) | set(ac_ids)
+#     extra_nodes = set()
+#     subgraph_nodes = list(subgraph(set(qa_nodes))[0].keys())
+#     extra_nodes = set([nid_to_int(i) for i in subgraph_nodes]) - qa_nodes
+#
+#     extra_nodes = extra_nodes - qa_nodes
+#
+#     return (sorted(qc_ids), sorted(ac_ids), question, sorted(extra_nodes))
+
+
+
+# def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1_api(data):
+#     qc_ids, ac_ids, question = data
+#     qa_nodes = set(qc_ids) | set(ac_ids)
+#     extra_nodes = set()
+#     # extra_nodes = set([nid_to_int(i) for i in subgraph_nodes]) - qa_nodes
+#     #
+#     # extra_nodes = extra_nodes - qa_nodes
+#
+#     for qid in qa_nodes:
+#         for aid in qa_nodes:
+#             # use APi to get extra nodes(?)
+#             if qid != aid:
+#                 # # print(qid, aid)
+#                 # # subgraph_edges = list(data_api.get_comprehensive_subgraph([qid])[1].values())
+#                 # # print("df", subgraph_edges)
+#                 # subgraph_nodes_qid = get_subgraph(
+#                 #     [qid],
+#                 # )
+#                 # # print("ef", subgraph_nodes_qid)
+#                 # subgraph_nodes_aid = get_subgraph(
+#                 #     [aid],
+#                 # )
+#                 #
+#                 subgraph_nodes_qid = [i for i in get_subgraph([qid],)[0].values()][0]
+#                 # # print("ef", subgraph_nodes_qid)
+#                 subgraph_nodes_aid = [i for i in get_subgraph([aid],)[0].values()][0]
+#                 # print(subgraph_nodes_qid)
+#                 # print(len(subgraph_nodes_qid))
+#                 # print(subgraph_nodes_aid)
+#                 # print(len(subgraph_nodes_aid))
+#                 extra_nodes |= set(subgraph_nodes_qid) & set(subgraph_nodes_aid)
+#                 # print(extra_nodes)
+#     # extra_nodes = set([int(i.replace('n', '')) for i in subgraph_nodes]) - qa_nodes
+#     extra_nodes = extra_nodes - qa_nodes
+#     # print("xtra :", extra_nodes)
+#     # print(len(extra_nodes))
+#
+#     qc_ids = set(qc_ids)
+#     ac_ids = set(ac_ids)
+#     # qc_ids = set([int(_id.replace('n', '')) for _id in extra_nodes])
+#     # ac_ids = set([int(_id.replace('n', '')) for _id in extra_nodes])
+#     extra_nodes = set([int(_id.replace('n', '')) for _id in extra_nodes])
+#
+#     return (sorted(qc_ids), sorted(ac_ids), question, sorted(extra_nodes))
+
+
 def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1_api(data):
     qc_ids, ac_ids, question = data
     qa_nodes = set(qc_ids) | set(ac_ids)
     extra_nodes = set()
-    subgraph_nodes = list(subgraph(set(qa_nodes))[0].keys())
-    extra_nodes = set([nid_to_int(i) for i in subgraph_nodes]) - qa_nodes
 
+
+    qa_pairs_list = [list(i) for i in list(product(qa_nodes,qa_nodes))]
+    subgraph_nodes= get_subgraph_by_node_pairs(qa_pairs_list)
+    for i in subgraph_nodes:
+        extra_nodes |= set(i)
     extra_nodes = extra_nodes - qa_nodes
+    # print("xtra :", extra_nodes)
+    # print(len(extra_nodes))
+
+    qc_ids = set(qc_ids)
+    ac_ids = set(ac_ids)
+
+    extra_nodes = set([int(_id.replace('n', '')) for _id in extra_nodes])
 
     return (sorted(qc_ids), sorted(ac_ids), question, sorted(extra_nodes))
+
+
 
 def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2_api(data, model, tokenizer):
     qc_ids, ac_ids, question, extra_nodes = data
@@ -816,14 +960,14 @@ def generate_adj_data_from_grounded_concepts__use_LM_api(
     #print('check point')
 
 
-    # start = time.time()
-    # with Pool(num_processes) as p:
-    #     res1 = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1, qa_data), total=len(qa_data)))
-    #     # res1_api = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1_api, qa_data_api), total=len(qa_data)))
-    #
-    # end = time.time()
+    start = time.time()
+    with Pool(num_processes) as p:
+        res1 = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1, qa_data), total=len(qa_data)))
+        # res1_api = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1_api, qa_data_api), total=len(qa_data)))
 
-    # print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1 takes {end-start}")
+    end = time.time()
+
+    print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1 takes {end-start}")
 
     start = time.time()
     with Pool(num_processes) as p:
@@ -837,15 +981,15 @@ def generate_adj_data_from_grounded_concepts__use_LM_api(
 
     res2 = []
     res2_api = []
-    # start = time.time()
-    # for j, _data in enumerate(res1):
-    #     if j % 100 == 0: print (j)
-    #     res2.append(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2(_data))
-    #     # res2_api.append(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2_api(_data))
-    #
-    # end = time.time()
-    #
-    # print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2 takes {end-start}")
+    start = time.time()
+    for j, _data in enumerate(res1):
+        if j % 100 == 0: print (j)
+        res2.append(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2(_data))
+        # res2_api.append(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2_api(_data))
+
+    end = time.time()
+
+    print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2 takes {end-start}")
 
     start = time.time()
     for j, _data in enumerate(res1_api):
@@ -860,12 +1004,12 @@ def generate_adj_data_from_grounded_concepts__use_LM_api(
     # res3 = concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3(res2[0])
     # res3_api = concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3_api(res2_api[0])
 
-    # start = time.time()
-    # with Pool(num_processes) as p:
-    #     res3 = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3, res2), total=len(res2)))
-    #     #res3_api = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3_api, res2_api), total=len(res2_api)))
-    # end = time.time()
-    # print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3 takes {end-start}")
+    start = time.time()
+    with Pool(num_processes) as p:
+        res3 = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3, res2), total=len(res2)))
+        #res3_api = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3_api, res2_api), total=len(res2_api)))
+    end = time.time()
+    print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3 takes {end-start}")
 
     start = time.time()
     with Pool(num_processes) as p:

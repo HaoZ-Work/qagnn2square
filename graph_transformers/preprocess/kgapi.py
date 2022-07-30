@@ -8,7 +8,8 @@ import base64
 import numpy as np
 from io import BytesIO
 import time
-
+import pprint
+from itertools import product
 KG_NAME = "conceptnet"
 # BASE_URL = 'http://172.29.101.165:7000'
 BASE_URL ='https://square.ukp-lab.de/api'
@@ -428,191 +429,97 @@ def subgraph(node_ids:list):
     print(response.status_code)
     print(n_list)
 
+def subgraph_nodes(node_ids:list):
+  # n_list = [nid_to_str(i) for i in node_ids]
+
+
+  response = requests.request("GET",
+                              f"{BASE_URL}/datastores/kg/{KG_NAME}/edges/query_by_id_as_nodes",
+                              headers={"Authorization": f"Bearer {AUTH_SEC}"},
+                              data=json.dumps(node_ids) )
+  return response.json()
+
+def get_subgraph( node_ids ):
+  n_list = [nid_to_str(i) for i in node_ids]
+
+  response = requests.request("GET",
+                              f"{BASE_URL}/datastores/kg/{KG_NAME}/edges/query_by_id_as_nodes",
+                              headers={"Authorization": f"Bearer {AUTH_SEC}"},
+                              data=json.dumps(n_list))
+  return response.json()
+
+def get_subgraph_by_node_pairs( node_id_pairs ):
+  # node_id_pairs = [
+  #   [
+  #     "n2411",
+  #     "n28866"
+  #   ],
+  #   [
+  #     "n13634",
+  #     "n134"
+  #   ],
+  #   [
+  #     "n6288",
+  #     "n13505"
+  #   ]
+  # ]
+  for node_pair in range(len(node_id_pairs)):
+    for i in range(len(node_id_pairs[node_pair])):
+      node_id_pairs[node_pair][i] = nid_to_str(node_id_pairs[node_pair][i])
+  response = requests.request("GET",
+                              f"{BASE_URL}/datastores/kg/{KG_NAME}/nodes/query_nodes_inbetween",
+                              headers={"Authorization": f"Bearer {AUTH_SEC}"},
+                              data=json.dumps(node_id_pairs))
+  return response.json()
+def get_edges_by_node_pairs( node_id_pairs ):
+  # node_id_pairs = [
+  #   [
+  #     "n2411",
+  #     "n28866"
+  #   ],
+  #   [
+  #     "n13634",
+  #     "n134"
+  #   ],
+  #   [
+  #     "n6288",
+  #     "n13505"
+  #   ]
+  # ]
+
+  list_copy = node_id_pairs.copy()
+  for node_pair in range(len(list_copy)):
+    if list_copy[node_pair][0] ==list_copy[node_pair][1]:
+      node_id_pairs.remove(list_copy[node_pair])
+
+      # print(node_id_pairs[node_pair])
+  for node_pair in range(len(node_id_pairs)):
+    for i in range(len(node_id_pairs[node_pair])):
+      node_id_pairs[node_pair][i] = nid_to_str(node_id_pairs[node_pair][i])
+  # print(node_id_pairs)
+  response = requests.request("GET",
+                              f"{BASE_URL}/datastores/kg/{KG_NAME}/edges/query_by_ids",
+                              headers={"Authorization": f"Bearer {AUTH_SEC}"},
+                              data=json.dumps(node_id_pairs))
+  re=dict()
+  for i in response.json():
+    if i!= dict():
+      # print(list(i.keys()))
+      # print((i.values()))
+      re[list(i.keys())[0]]= dict()
+      re[list(i.keys())[0]] = list( i.values())[0]
+  # re = response.json()
+  # re.remove(dict())
+  return re
 
 def main():
+ pair_list =  [["n2411","n28866"],[ "n6288","n13505"]]
+ pair_list = [[28866, 2411], [6288, 13505],[569,581]]
 
- # print(concept2id_api('eating salt'))
- #  print(cpnet_simple_api(20))
- # for i in range(100000)
- # print(id2concept_api(20))
- # for i in range(100000):
- #   print(i)
- #   print(id2concept_api(i))
- #   print(' '.join(id2concept_api(i).split('_')))
- # for i in range(21,10000000):
- #   print(i)
- # print(cpnet_simple_api(20))
- # print(cpnet_has_edge(4,11))
- # print(len(merged_relations()))
- # print(id2relation_api)
- # print(relation2id_api)
-
- # print(cpnet_values(1271,16783))
- # print(cpnet_has_edge(1271, 1271))
- # print(cpnet_values(1271,1271))
- # start= time.time()
- # print(cpnet_simple_api(551))
- #
- # end = time.time()
- #
- # print(end-start)
- #
- #
- # start= time.time()
- # print(cpnet_simple_api(551))
- #
- # end = time.time()
- #
- # print(end-start)
-
- #
- # start= time.time()
- #
- # l = [1,2,3,4,5]
- # for i in l:
- #   for t in l:
- #     x= i+t
- #     print(i,t)
- #
- # end = time.time()
- #
- # print(end-start)
-
- # start = time.time()
- #
- # l = [1, 2, 3, 4, 5]
- # l2 = np.log2(l)
- # # print(l2)
- #
- # end = time.time()
- #
- # print(end - start)
- #
- # start = time.time()
- #
- # l = [1, 2, 3, 4, 5]
- # l2 =[]
- # for i in l:
- #   l2.append(np.log2(i))
- #
- # end = time.time()
- #
- # print(end - start)
- # e = set()
- # e |= set([1,2,3]) &set([2,3,4])
- #
- # print(e)
- # e |= set([7,8,9]) &set([8,9,10])
- # e |= set([1,2,3]) &set([2,3,4])
- # print(e)
-
- # qa_nodes = set(range(10))
- # start = time.time()
- #
- # extra_nodes = set()
- # for qid in qa_nodes:
- #   for aid in qa_nodes:
- #     # use APi to get extra nodes(?)
- #     csq = cpnet_simple_api(qid)
- #     csa = cpnet_simple_api(aid)
- #     if qid != aid and (csq != False) and (csa != False):
- #
- #       extra_nodes |= set(csq) & set(csa)  # list of node id
- # end = time.time()
- #
- # print(end - start)
- #
- # print(cpnet_has_edge(10, 20))
- # print(list(cpnet_values(10,20).values())==[])
- #
- # start = time.time()
- # node_ids = list(range(10))
- # cids = np.array(node_ids, dtype=np.int32)
- # n_rel = len(id2relation_api)
- # n_node = cids.shape[0]
- # adj = np.zeros((n_rel, n_node, n_node), dtype=np.uint8)
- # for s in range(n_node):
- #   for t in range(n_node):
- #     s_c, t_c = cids[s], cids[t]
- #     # use API to get whethere there is edge (?)
- #
- #     v = cpnet_values(s_c, t_c).values()
- #     if list(v) != []:
- #       for e_attr in v:
- #         if e_attr['rel'] >= 0 and e_attr['rel'] < n_rel:
- #           adj[e_attr['rel']][s][t] = 1
- #     # if cpnet_has_edge(s_c, t_c):
- #     #     # v = cpnet_values(s_c,t_c)
- #     #     for e_attr in cpnet_values(s_c,t_c).values():
- #     #         if e_attr['rel'] >= 0 and e_attr['rel'] < n_rel:
- #     #             adj[e_attr['rel']][s][t] = 1
- # end = time.time()
- #
- # print(end - start)
- #
- #
- #
- #
- #
- # start = time.time()
- # node_ids = list(range(10))
- # cids = np.array(node_ids, dtype=np.int32)
- # n_rel = len(id2relation_api)
- # n_node = cids.shape[0]
- # adj = np.zeros((n_rel, n_node, n_node), dtype=np.uint8)
- # for s in range(n_node):
- #   for t in range(n_node):
- #     s_c, t_c = cids[s], cids[t]
- #     # use API to get whethere there is edge (?)
- #
- #
- #     if cpnet_has_edge(s_c, t_c):
- #         # v = cpnet_values(s_c,t_c)
- #         for e_attr in cpnet_values(s_c,t_c).values():
- #             if e_attr['rel'] >= 0 and e_attr['rel'] < n_rel:
- #                 adj[e_attr['rel']][s][t] = 1
- # end = time.time()
- # print()
- # print(end - start)
- # print(cpnet_values(1271,16783))
-
- # qa_nodes = np.array([1,2,3,4,5])
- # idx = np.where(qa_nodes==5)[0][0]
- # print(idx)
- # # print(set([nid_to_int(i) for i in list(subgraph(set(qa_nodes))[0].keys())]))
- # print(subgraph(set(qa_nodes))[0].values())
- # n_rel = len(id2relation_api)
- # adj = np.zeros((n_rel, 5, 5), dtype=np.uint8)
- # for i in subgraph(qa_nodes)[1].values():
- #   # print(i)
- #   # print(i['in_id'])
- #   # print(i['name'])
- #   # print(i['weight'])
- #   # print(relation2id_api[i['name']])
- #
- #   if ( nid_to_int(i['in_id']) in qa_nodes and nid_to_int(i['out_id']) in qa_nodes):
- #     if relation2id_api[i['name']] >= 0 and relation2id_api[i['name']] < n_rel:
- #      print(i)
- #      in_idx = np.where(qa_nodes==nid_to_int(i['in_id']))[0][0]
- #      out_idx = np.where(qa_nodes == nid_to_int(i['out_id']))[0][0]
- #      adj[relation2id_api[i['name']]][in_idx ][ out_idx ]=1
- # # print(qa_nodes.index(3))
- # nodes = ['n29187', 'n19977', 'n4621', 'n155667', 'n22553', 'n6699', 'n79923', 'n15925', 'n6198', 'n18487', 'n20023', 'n121398', 'n217658', 'n49718', 'n579', 'n7235', 'n6729', 'n4170', 'n9810', 'n264789', 'n183897', 'n6234', 'n21085', 'n3678', 'n14439', 'n15987', 'n4212', 'n24693', 'n7799', 'n171133', 'n20095', 'n6787', 'n17031', 'n654', 'n21649', 'n16534', 'n2711', 'n76446', 'n17055', 'n73892', 'n12452', 'n12454', 'n74928', 'n14512', 'n156850', 'n692', 'n1718', 'n695', 'n563382', 'n191166', 'n17088', 'n28866', 'n28868', 'n1736', 'n20177', 'n80102', 'n746', 'n1770', 'n749', 'n156909', 'n751', 'n22256', 'n239', 'n15092', 'n2296', 'n410362', 'n3326', 'n108801', 'n5895', 'n94984', 'n20744', 'n5898', 'n4363', 'n113420', 'n6920', 'n524046', 'n102159', 'n4364', 'n13578', 'n102163', 'n4374', 'n173855', 'n19251', 'n15674', 'n89933', 'n12112', 'n2389', 'n5975', 'n401240', 'n23384', 'n74590', 'n1800', 'n1380', 'n159589', 'n1381', 'n18282', 'n2411', 'n2412', 'n2413', 'n1386', 'n2415', 'n19819', 'n1911', 'n3454', 'n11137', 'n2434', 'n8067', 'n2436', 'n3461', 'n8069', 'n18311', 'n2438', 'n208789', 'n12694', 'n22942', 'n16286', 'n928', 'n26016', 'n26018', 'n931', 'n11171', 'n5539', 'n934', 'n26022', 'n9138', 'n363959', 'n28089', 'n74683', 'n270272', 'n2496', 'n4544', 'n8131', 'n3013', 'n439239', 'n1993', 'n7116', 'n3030', 'n3035', 'n3036', 'n271326', 'n2527', 'n72676', 'n23013', 'n21492']
- #
- # qa_nodes = [nid_to_int(i)  for i in nodes]
- # print(len(nodes))
- # start = time.time()
- # print(subgraph(set(qa_nodes)))
- #
- # end = time.time()
- #
- # print(end-start)
-
- # for i in [13505, 1363,11399,10906]:
- #    print(id2concept_api(i))
- print(concept2id_api('house'))
-
-
+ qa_nodes = range(250)
+ pair_list=[list(i) for i in list(product(qa_nodes, qa_nodes))]
+ # print(pair_list)
+ pprint.pprint(get_edges_by_node_pairs( pair_list ))
  pass
 
 if __name__ == '__main__':

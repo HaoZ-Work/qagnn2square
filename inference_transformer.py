@@ -1,7 +1,8 @@
 import time
 import numpy as np
 from tqdm import tqdm
-
+import json
+from itertools import product
 from graph_transformers.modelling import (
     roberta,
     qagnn
@@ -10,6 +11,7 @@ from graph_transformers.preprocess import (
     statement,
     grounding,
     graph,
+    kgapi
 )
 
 import torch
@@ -279,7 +281,7 @@ class Inference:
             # concepts: np.array(num_nodes, ), where entry is concept id
             # qm: np.array(num_nodes, ), where entry is True/False
             # am: np.array(num_nodes, ), where entry is True/False
-            # concepts = np.array(list(set(concepts))) ## TODO: should be removec after fixing the api concept2id_api ()
+            concepts = np.array(list(set(concepts))) ## TODO: should be removec after fixing the api concept2id_api ()
             assert len(concepts) == len(set(concepts))
             qam = qm | am
             # sanity check: should be T,..,T,F,F,..F
@@ -374,8 +376,7 @@ class Inference:
 
         concept_ids, node_type_ids, node_scores, adj_lengths = [x.view(-1, num_choice, *x.size()[1:]) for x in
                                                                 (concept_ids, node_type_ids, node_scores, adj_lengths)]
-        self.node_ids = concept_ids
-        self.node_scores = node_scores
+
         # concept_ids: (n_questions, num_choice, max_node_num)
         # node_type_ids: (n_questions, num_choice, max_node_num)
         # node_scores: (n_questions, num_choice, max_node_num)
@@ -386,6 +387,8 @@ class Inference:
     def _predict(self):
 
         statements, grounded, graphs = self._prepare_data()
+        self.grounded = grounded
+        self.graphs = graphs
         model_type = "roberta"
         tokenizer = AutoTokenizer.from_pretrained("roberta-base")
 
@@ -467,7 +470,7 @@ class Inference:
             pad_token_segment_id=4 if model_type in ['xlnet'] else 0,
             sequence_b_segment_id=0 if model_type in ['roberta', 'albert'] else 1
         )
-        self.num_choice = len(statements)
+        self.num_choice = len(statements['choices'])
         *data_tensors, all_label = self.convert_features_to_tensors(features)
 
         *test_decoder_data, test_adj_data = self.load_sparse_adj_data_with_contextnode(graphs, max_node_num=200,
@@ -487,13 +490,11 @@ class Inference:
 
         print(f"The prediction of current input is : {predictions}")
 
-    def _get_node_score(self):
-        return self.node_scores
+
 
     def _get_attn(self):
-        return self.attn
 
-    def _get_info(self):
+
         info = dict()
         info['node_ids'] = self.info[4].squeeze() # (5,200)
         torch.save(self.info[4].squeeze(),'node_ids.pt')
@@ -504,10 +505,78 @@ class Inference:
         info['attn'] = (attn_h1+attn_h2)/2 # (5,200)
 
         torch.save((attn_h1+attn_h2)/2, 'attn.pt')
-        torch.save(attn_h1 , 'attn_h1.pt')
-        torch.save(attn_h2, 'attn_h2.pt')
+        # torch.save(attn_h1 , 'attn_h1.pt')
+        # torch.save(attn_h2, 'attn_h2.pt')
         info['edge_index'] = self.info[8] # list of 5 lists
         info['edge_type'] = self.info[9] # list of 5 lists
+
+    def _get_info(self):
+        # info = dict()
+        # info['node_ids'] = self.info[4].squeeze() # (5,200)
+        # torch.save(self.info[4].squeeze(),'node_ids.pt')
+        # info['scores'] = self.info[6].squeeze() # (5,200)
+        # torch.save(self.info[6].squeeze(), 'scores.pt')
+        # attn_h1 = self.attn[:self.num_choice]
+        # attn_h2 = self.attn[self.num_choice:]
+        # info['attn'] = (attn_h1+attn_h2)/2 # (5,200)
+        #
+        # torch.save((attn_h1+attn_h2)/2, 'attn.pt')
+        # torch.save(attn_h1 , 'attn_h1.pt')
+        # torch.save(attn_h2, 'attn_h2.pt')
+        # info['edge_index'] = self.info[8] # list of 5 lists
+        # info['edge_type'] = self.info[9] # list of 5 lists
+
+        def node_info(node_id:int,score_map:dict,grounded:dict):
+            node = dict()
+            node['id']=node_id
+            node['name'] = kgapi.id2concept_api(np.abs(node_id))
+            node['description']=""
+            node['q_node']= False
+            node['ans_node'] = False
+            if node['name'] in grounded['qc'] :
+                node['q_node'] = True
+            elif node['name'] in grounded['ac']:
+                node['ans_node']= True
+            node['width']=score_map[node_id]
+            return node
+
+        def edge_info(node_ids:list):
+            pair_list = [list(i) for i in list(product(node_ids, node_ids))]
+            edges = kgapi.get_edges_by_node_pairs(pair_list)
+
+            re = dict()
+            for i in edges.items():
+                tmp_dict = dict()
+                tmp_dict['source'] = kgapi.nid_to_int(i[1]['in_id'])
+                tmp_dict['target'] = kgapi.nid_to_int(i[1]['out_id'])
+                tmp_dict['weight'] = i[1]['weight']
+                tmp_dict['label'] = i[1]['name']
+                re[i[0]] = tmp_dict
+            return re
+
+        info =dict()
+        info['nodes'] = dict()
+        info['scores'] = dict()
+        info['edges'] = dict()
+        for i in range(len(self.graphs)):
+            score = self.graphs[i]['cid2score']
+            keys = [int(k) for k in score.keys()]
+            values = [float(v) for v in score.values()]
+            # score = json.dumps(dict(zip(keys, values)),indent=4)
+            score = dict(zip(keys, values))
+            info['nodes']['statement_' + str(i)] = dict()
+            for k in keys:
+                info['nodes']['statement_'+str(i)][str(k)] = node_info(k,score,self.grounded[i])
+
+            info['scores']['statement_'+str(i)] = score
+
+            info['edges']['statement_' + str(i)] = dict()
+            info['edges']['statement_' + str(i)] = edge_info(keys)
+
+        info = json.dumps(info,indent=4)
+        with open('info_demo.json', 'w') as f:
+            f.write(info)
+
         return info
 
 
@@ -521,8 +590,11 @@ if __name__ == '__main__':
     # question = "Crabs live in what sort of enviroment?"
     # choices = ["saltwater","galapagos","fish market"]
 
-    question = "Where would you find a basement that can be accesssed with an elevator?"
-    choices = ["closet","church","office building"]
+    # question = "Where would you find a basement that can be accesssed with an elevator?"
+    # choices = ["closet","church","office building"]
+
+    question = "A revolving door is convenient for two direction travel, but also serves as a security measure at what?"
+    choices = ["bank", "library", "department store", "mall", "new york"]
 
 
     input = {"question": question, "choices": choices}
@@ -530,6 +602,7 @@ if __name__ == '__main__':
     inf = Inference(inputs=input, use_lm=True, model_path=model_path)
     inf._predict()
     info =inf._get_info()
+    # info = inf._get_attn()
     # print(info)
 
 

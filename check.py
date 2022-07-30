@@ -1,5 +1,6 @@
 import torch
 # from graph_transformers.preprocess.kgapi import *
+from graph_transformers.preprocess.graph import *
 def check_info(num:int, attn:torch.tensor,node_ids:torch.tensor,scores:torch.tensor):
     '''
     Check the mapping between nodes and their score,attn
@@ -29,6 +30,17 @@ def check_info(num:int, attn:torch.tensor,node_ids:torch.tensor,scores:torch.ten
         print(topk_score.tolist())
         print("*"*20)
 
+    # for i in range(attn.shape[0]):
+    #     topk_score,topk_idx = torch.topk(scores[i],num)
+    #
+    #     topk_node_ids = node_ids[i][topk_idx].tolist()
+    #     # topk_score = scores[i][topk_idx]
+    #     #print(topk_node_ids)
+    #     print([id2concept[i] for i in  topk_node_ids])
+    #     print(topk_attn.tolist())
+    #     print(topk_score.tolist())
+    #     print("*"*20)
+
 
 
 
@@ -44,7 +56,7 @@ def main():
     node_ids = torch.load('node_ids.pt')
     scores = torch.load('scores.pt')
 
-    check_info(10,attn,node_ids,scores)
+    check_info(200,attn,node_ids,scores)
 
 if __name__ == '__main__':
     main()
