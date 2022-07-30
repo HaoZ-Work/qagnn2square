@@ -6,9 +6,6 @@ from typing import List
 import numpy as np
 from tqdm import tqdm
 import networkx as nx
-from scipy.sparse import csr_matrix, coo_matrix
-from multiprocessing import Pool
-from concurrent.futures import ThreadPoolExecutor
 import spacy
 from spacy.matcher import Matcher
 
@@ -25,7 +22,6 @@ from graph_transformers_v2.preprocess import (
 import torch
 from transformers import (
     AutoTokenizer,
-    RobertaTokenizer,
     OPENAI_GPT_PRETRAINED_CONFIG_ARCHIVE_MAP,
     BERT_PRETRAINED_CONFIG_ARCHIVE_MAP,
     XLNET_PRETRAINED_CONFIG_ARCHIVE_MAP,
@@ -43,30 +39,18 @@ MODEL_CLASS_TO_NAME = {
     'lstm': ['lstm'],
 }
 
-merged_relations = [
-    'antonym',
-    'atlocation',
-    'capableof',
-    'causes',
-    'createdby',
-    'isa',
-    'desires',
-    'hassubevent',
-    'partof',
-    'hascontext',
-    'hasproperty',
-    'madeof',
-    'notcapableof',
-    'notdesires',
-    'receivesaction',
-    'relatedto',
-    'usedfor',
-]
 
 DATA_DIR = "../graph_transformers/data/"
 
-CPNET_VOCAB = None
+CPNET_VOCAB = DATA_DIR+"concept.txt"
+CPNET_PATH = DATA_DIR+"conceptnet.en.pruned.graph"
 PATTERN_PATH = DATA_DIR+"matcher_patterns.json"
+MODEL_PATH = DATA_DIR+"csqa_model_hf3.4.0.pt"
+
+LM_MODEL = "roberta-base"
+MAX_NODE_NUM = 200
+NUM_CHOICE = 5
+
 nlp = None
 matcher = None
 
@@ -75,19 +59,17 @@ class Inference:
     def __init__(
             self,
              inputs: List[List],
-             use_lm: bool = True,
              model_path: str = None,
         ):
         self.inputs = inputs
-        self.use_lm = use_lm
         self.model_path = model_path
         self.device = torch.device("cpu")
         start = time.time()
         # load matcher
         self.nlp, self.matcher = self._load_matcher()
         # load DS
-        self._load_resources(DATA_DIR+"concept.txt")
-        self._load_cpnet(DATA_DIR+"conceptnet.en.pruned.graph")
+        self._load_resources(CPNET_VOCAB)
+        self._load_cpnet(CPNET_PATH)
         # load lm model on init
         self._load_lm()
         self._load_qagnn()
@@ -95,23 +77,20 @@ class Inference:
         print(f"LOADING modules takes {end - start}")
 
     def _load_matcher(self):
-        nlp = spacy.load('en_core_web_sm', disable=['ner', 'parser', 'textcat'])
+        nlp = spacy.load(
+            'en_core_web_sm',
+            disable=['ner', 'parser', 'textcat'])
         nlp.add_pipe('sentencizer')
-        # nlp.add_pipe(nlp.create_pipe('sentencizer'))
-        # start = time()
         with open(PATTERN_PATH, "r", encoding="utf8") as fin:
             all_patterns = json.load(fin)
         matcher = Matcher(nlp.vocab)
-        m = [
+        for concept, pattern in all_patterns.items():
             matcher.add(concept, [pattern])
-            for concept, pattern in all_patterns.items()
-        ]
         print("Loaded matcher!!!")
         return nlp, matcher
 
     def _load_resources(self, cpnet_vocab_path):
         global concept2id, id2concept
-
         with open(cpnet_vocab_path, "r", encoding="utf8") as fin:
             id2concept = [w.strip() for w in fin]
         concept2id = {w: i for i, w in enumerate(id2concept)}
@@ -131,12 +110,11 @@ class Inference:
 
     def _load_lm(self):
 
-        self.tokenizer = AutoTokenizer.from_pretrained("roberta-base")
-        self.lm_model = roberta_model.RobertaForMaskedLMwithLoss.from_pretrained("roberta-base")
+        self.tokenizer = AutoTokenizer.from_pretrained(LM_MODEL)
+        self.lm_model = roberta_model.RobertaForMaskedLMwithLoss.from_pretrained(LM_MODEL)
         # lm_model.cuda();
         self.lm_model.eval()
         print('Loaded LM!!!')
-        # return lm_model, tokenizer
 
     def _load_qagnn(self):
         cp_emb = [np.load(DATA_DIR+"tzw.ent.npy")]
@@ -144,30 +122,29 @@ class Inference:
         concept_num, concept_dim = cp_emb.size(0), cp_emb.size(1)
 
         # load the model
-        # start = time.time()
-        model_state_dict, old_args = torch.load(
+        model_state_dict, model_args = torch.load(
             self.model_path,
             map_location=self.device)
 
         # create the model template
         self.model = qagnn_model.LM_QAGNN(
-            old_args,
-            old_args.encoder,
-            k=old_args.k,
+            model_args,
+            model_args.encoder,
+            k=model_args.k,
             n_ntype=4,
-            n_etype=old_args.num_relation,
+            n_etype=model_args.num_relation,
             n_concept=concept_num,
-            concept_dim=old_args.gnn_dim,
+            concept_dim=model_args.gnn_dim,
             concept_in_dim=concept_dim,
-            n_attention_head=old_args.att_head_num,
-            fc_dim=old_args.fc_dim,
-            n_fc_layer=old_args.fc_layer_num,
-            p_emb=old_args.dropouti,
-            p_gnn=old_args.dropoutg,
-            p_fc=old_args.dropoutf,
+            n_attention_head=model_args.att_head_num,
+            fc_dim=model_args.fc_dim,
+            n_fc_layer=model_args.fc_layer_num,
+            p_emb=model_args.dropouti,
+            p_gnn=model_args.dropoutg,
+            p_fc=model_args.dropoutf,
             pretrained_concept_emb=cp_emb,
-            freeze_ent_emb=old_args.freeze_ent_emb,
-            init_range=old_args.init_range,
+            freeze_ent_emb=model_args.freeze_ent_emb,
+            init_range=model_args.init_range,
             encoder_config={}
         )
 
@@ -187,7 +164,7 @@ class Inference:
             cpnet_vocab=id2concept,
             _nlp=self.nlp,
             _matcher=self.matcher,
-            num_processes=1
+            num_processes=8
         )
         # end = time.time()
         # print(f"grounding takes {end - start}")
@@ -224,15 +201,31 @@ class Inference:
 
     def convert_features_to_tensors(self,features):
 
-        all_input_ids = torch.tensor(self.select_field(features, 'input_ids'), dtype=torch.long)
-        all_input_mask = torch.tensor(self.select_field(features, 'input_mask'), dtype=torch.long)
-        all_segment_ids = torch.tensor(self.select_field(features, 'segment_ids'), dtype=torch.long)
-        all_output_mask = torch.tensor(self.select_field(features, 'output_mask'), dtype=torch.bool)
-        all_label = torch.tensor([f.label for f in features], dtype=torch.long)
+        all_input_ids = torch.tensor(
+            self.select_field(features, 'input_ids'),
+            dtype=torch.long
+        )
+        all_input_mask = torch.tensor(
+            self.select_field(features, 'input_mask'),
+            dtype=torch.long
+        )
+        all_segment_ids = torch.tensor(
+            self.select_field(features, 'segment_ids'),
+            dtype=torch.long
+        )
+        all_output_mask = torch.tensor(
+            self.select_field(features, 'output_mask'),
+            dtype=torch.bool
+        )
+        all_label = torch.tensor(
+            [f.label for f in features],
+            dtype=torch.long
+        )
         return all_input_ids, all_input_mask, all_segment_ids, all_output_mask, all_label
 
     def select_field(self, features, field):
-        return [[choice[field] for choice in feature.choices_features] for feature in features]
+        return [[choice[field] for choice in feature.choices_features]
+                for feature in features]
 
     def _convert_examples_to_features(
             self,
@@ -270,7 +263,8 @@ class Inference:
                         'segment_ids': segment_ids,
                         'output_mask': output_mask,
                     }
-                    for _, input_ids, input_mask, segment_ids, output_mask in choices_features
+                    for _, input_ids, input_mask, segment_ids,
+                        output_mask in choices_features
                 ]
                 self.label = label
 
@@ -351,11 +345,6 @@ class Inference:
                 output_mask = output_mask + ([1] * padding_length)
                 segment_ids = segment_ids + ([pad_token_segment_id] * padding_length)
 
-            assert len(input_ids) == max_seq_length
-            assert len(output_mask) == max_seq_length
-            assert len(input_mask) == max_seq_length
-            assert len(segment_ids) == max_seq_length
-
             label = label_map[labels]
             choices_features.append((tokens, input_ids, input_mask, segment_ids, output_mask))
         features.append(InputFeatures(
@@ -405,16 +394,19 @@ class Inference:
                     F_start = True
                 else:
                     assert F_start == False
-            # this is the final number of nodes including contextnode but excluding PAD
+            # this is the final number of nodes including
+            # contextnode but excluding PAD
             num_concept = min(len(concepts), max_node_num - 1) + 1
             adj_lengths_ori[idx] = len(concepts)
             adj_lengths[idx] = num_concept
 
             # Prepare nodes
             concepts = concepts[:num_concept - 1]
+            # To accomodate contextnode, original concept_ids incremented by 1
             concept_ids[idx, 1:num_concept] = torch.tensor(
-                concepts + 1)  # To accomodate contextnode, original concept_ids incremented by 1
-            concept_ids[idx, 0] = 0  # this is the "concept_id" for contextnode
+                concepts + 1)
+            # this is the "concept_id" for contextnode
+            concept_ids[idx, 0] = 0
 
             # Prepare node scores
             if (cid2score is not None):
@@ -425,8 +417,10 @@ class Inference:
 
             # Prepare node types
             node_type_ids[idx, 0] = 3  # context node
-            node_type_ids[idx, 1:num_concept][torch.tensor(qm, dtype=torch.bool)[:num_concept - 1]] = 0
-            node_type_ids[idx, 1:num_concept][torch.tensor(am, dtype=torch.bool)[:num_concept - 1]] = 1
+            node_type_ids[idx, 1:num_concept][torch.tensor(
+                qm, dtype=torch.bool)[:num_concept - 1]] = 0
+            node_type_ids[idx, 1:num_concept][torch.tensor(
+                am, dtype=torch.bool)[:num_concept - 1]] = 1
 
             # Load adj
             # (num_matrix_entries, ), where each entry is coordinate
@@ -440,7 +434,8 @@ class Inference:
             # Prepare edges
             i += 2
             j += 1
-            k += 1   # **** increment coordinate by 1, rel_id by 2 ****
+            # **** increment coordinate by 1, rel_id by 2 ****
+            k += 1
             extra_i, extra_j, extra_k = [], [], []
             for _coord, q_tf in enumerate(qm):
                 _new_coord = _coord + 1
@@ -492,20 +487,9 @@ class Inference:
     def _predict(self):
         start = time.time()
         statements, grounded, graphs = self._prepare_data()
-        model_type = "roberta"
-        # tokenizer = AutoTokenizer.from_pretrained("roberta-base")
-
+        model_type = self.lm_model.config.model_type
         assert self.model_path is not None
 
-        # only for medqa data
-        # start = time.time()
-        #
-        # end = time.time()
-        # print(f"load entities and qagnn model takes {end - start}")
-
-        # from pprint import pprint
-        # pprint(dict(model.named_modules()))
-        # start = time.time()
         features = self._convert_examples_to_features(
             examples=statements,
             max_seq_length=128,
@@ -526,12 +510,10 @@ class Inference:
 
         *test_decoder_data, test_adj_data = self.load_sparse_adj_data_with_contextnode(
             graphs,
-            max_node_num=200,
-            num_choice=5,
+            max_node_num=MAX_NODE_NUM,
+            num_choice=NUM_CHOICE,
         )
 
-        # print(features)
-        # *input_data, labels = features
         input_data = [*data_tensors,*test_decoder_data, *test_adj_data]
 
         # start = time.time()
@@ -564,7 +546,8 @@ class Inference:
 
 if __name__ == '__main__':
     model_path = DATA_DIR+"csqa_model_hf3.4.0.pt"
-    question = "The sanctions against the school were a punishing blow, and they seemed to what the efforts the school had made to change?"
+    question = "The sanctions against the school were a punishing blow, and they seemed " \
+               "to what the efforts the school had made to change?"
     choices =  ["ignore", "enforce", "authoritarian", "yell at", "avoid"]
     # question = "There is a star at the center of what group of celestial bodies?"
     # choices = ["hollywood", "skyline", "outer space", "constellation", "solar system"]
@@ -574,7 +557,7 @@ if __name__ == '__main__':
     input = [[question, choice] for choice in choices]
     # input = {"question": question, "choices": choices}
     start = time.time()
-    inf = Inference(inputs=input, use_lm=True, model_path=model_path)
+    inf = Inference(inputs=input, model_path=model_path)
     inf._predict()
     end = time.time()
     print("Inference time: ", end-start)

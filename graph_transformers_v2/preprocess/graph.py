@@ -1,7 +1,7 @@
 import torch
 from tqdm import tqdm
 import numpy as np
-from scipy.sparse import csr_matrix, coo_matrix
+from scipy.sparse import coo_matrix
 from multiprocessing import Pool
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
@@ -43,16 +43,12 @@ relation2id = {r: i for i, r in enumerate(id2relation)}
 def concepts2adj(node_ids):
     cids = np.array(node_ids, dtype=np.int32)
     n_rel = len(id2relation)
-    # print("n_rel", n_rel)
     n_node = cids.shape[0]
     adj = np.zeros((n_rel, n_node, n_node), dtype=np.uint8)
-    ids = []
     for s in range(n_node):
         for t in range(n_node):
             s_c, t_c = cids[s], cids[t]
             if cpnet.has_edge(s_c, t_c):
-                ids.append([(s_c, t_c)])
-                # v = cpnet[s_c][t_c].values()
                 for e_attr in cpnet[s_c][t_c].values():
                     # print("edge attributes:", e_attr)
                     if e_attr['rel'] >= 0 and e_attr['rel'] < n_rel:
@@ -71,14 +67,17 @@ def get_LM_score(cids, question, model, tokenizer):
         tokenizer.encode(question.lower(), add_special_tokens=True)
         if cid == -1
         else tokenizer.encode(
-            '{} {}.'.format(question.lower(), ' '.join(id2concept[cid].split('_'))),
+            '{} {}.'.format(
+                question.lower(),
+                ' '.join(id2concept[cid].split('_'))
+            ),
             add_special_tokens=True)
         for cid in cids
     ]
     n_cids = len(cids)
     # print(n_cids)
     cur_idx = 0
-    batch_size = 64
+    batch_size = 128
     while cur_idx < n_cids:
         # Prepare batch
         input_ids = sents[cur_idx: cur_idx+batch_size]
@@ -90,47 +89,64 @@ def get_LM_score(cids, question, model, tokenizer):
         mask = (input_ids != 1).long()  # [B, seq_len]
         # Get LM score
         with torch.no_grad():
-            outputs = model(input_ids, attention_mask=mask, masked_lm_labels=input_ids)
+            outputs = model(
+                input_ids,
+                attention_mask=mask,
+                masked_lm_labels=input_ids
+            )
             # print("outputs:", outputs)
             loss = outputs[0]  # [B, ]
             _scores = list(-loss.detach().cpu().numpy())  # list of float
         scores += _scores
         cur_idx += batch_size
     assert len(sents) == len(scores) == len(cids)
-    cid2score = OrderedDict(sorted(list(zip(cids, scores)), key=lambda x: -x[1]))  # score: from high to low
+    cid2score = OrderedDict(
+        sorted(list(zip(cids, scores)),
+               key=lambda x: -x[1])
+    )  # score: from high to low
     # print(cid2score)
     return cid2score
 
 
-def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1(data):
+def concepts_to_adj_matrices_part1(data):
     qc_ids, ac_ids, question = data
     qa_nodes = set(qc_ids) | set(ac_ids)
     extra_nodes = set()
 
     for qid in qa_nodes:
         for aid in qa_nodes:
-            if qid != aid and qid in cpnet_simple.nodes and aid in cpnet_simple.nodes:
-                # print(set(cpnet_simple[qid]))
-                extra_nodes |= set(cpnet_simple[qid]) & set(cpnet_simple[aid])  # list of node ids
+            if qid != aid and qid in cpnet_simple.nodes \
+                    and aid in cpnet_simple.nodes:
+                extra_nodes |= set(cpnet_simple[qid]) &\
+                               set(cpnet_simple[aid])  # list of node ids
     extra_nodes = extra_nodes - qa_nodes
 
-    return (sorted(qc_ids), sorted(ac_ids), question, sorted(extra_nodes))
+    return (
+        sorted(qc_ids),
+        sorted(ac_ids),
+        question,
+        sorted(extra_nodes)
+    )
 
 
-def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3(data):
+def concepts_to_adj_matrices_part3(data):
     qc_ids, ac_ids, question, extra_nodes, cid2score = data
-    schema_graph = qc_ids + ac_ids + sorted(extra_nodes, key=lambda x: -cid2score[x]) #score: from high to low
+    schema_graph = qc_ids + ac_ids + sorted(
+        extra_nodes, key=lambda x: -cid2score[x]
+    ) # score: from high to low
     arange = np.arange(len(schema_graph))
     qmask = arange < len(qc_ids)
-    amask = (arange >= len(qc_ids)) & (arange < (len(qc_ids) + len(ac_ids)))
+    amask = (arange >= len(qc_ids)) & \
+            (arange < (len(qc_ids) + len(ac_ids)))
     # print("schema: ", schema_graph)
     adj, concepts = concepts2adj(schema_graph)
-    return {'adj': adj, 'concepts': concepts, 'qmask': qmask, 'amask': amask, 'cid2score': cid2score}
-
-
-#####################################################################################################
-#                     functions below this line will be called by preprocess.py                     #
-#####################################################################################################
+    return {
+        'adj': adj,
+        'concepts': concepts,
+        'qmask': qmask,
+        'amask': amask,
+        'cid2score': cid2score
+    }
 
 
 def generate_adj_data_from_grounded_concepts__use_LM(
@@ -146,11 +162,13 @@ def generate_adj_data_from_grounded_concepts__use_LM(
 ):
     """
     This function will save
-        (1) adjacency matrices (each in the form of a (R*N, N) coo sparse matrix)
+        (1) adjacency matrices (each in the form of
+            a (R*N, N) coo sparse matrix)
         (2) concepts ids
         (3) qmask that specifies whether a node is a question concept
         (4) amask that specifies whether a node is an answer concept
-        (5) cid2score that maps a concept id to its relevance score given the QA context
+        (5) cid2score that maps a concept id to its
+            relevance score given the QA context
     to the output path in python pickle format
 
     statement_json: json (dict)
@@ -185,33 +203,20 @@ def generate_adj_data_from_grounded_concepts__use_LM(
 
     # start = time.time()
     with Pool(num_processes) as p:
-        res1 = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1, qa_data), total=len(qa_data)))
+        res1 = list(tqdm(p.imap(concepts_to_adj_matrices_part1, qa_data), total=len(qa_data)))
 
-    # end = time.time()
-    # print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part1 takes {end - start}")
-
-    global concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2
-    def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2(data):
-        # print(data)
+    global concepts_to_adj_matrices_part2
+    def concepts_to_adj_matrices_part2(data):
         qc_ids, ac_ids, question, extra_nodes = data
         cid2score = get_LM_score(qc_ids + ac_ids + extra_nodes, question, model, tokenizer)
-        # print(cid2score)
         return (qc_ids, ac_ids, question, extra_nodes, cid2score)
 
-    # start = time.time()
     workers = 5
-
     with ThreadPoolExecutor(workers) as pool:
-        res2= list(pool.map(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2, res1))
+        res2= list(pool.map(concepts_to_adj_matrices_part2, res1))
 
-    # end = time.time()
-    # print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2 takes {end-start}")
-
-    # start = time.time()
     with Pool(num_processes) as p:
-        res3 = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3, res2), total=len(res2)))
-    #
-    # end = time.time()
+        res3 = list(tqdm(p.imap(concepts_to_adj_matrices_part3, res2), total=len(res2)))
     # print(f"concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3 takes {end-start}")
 
     return res3
