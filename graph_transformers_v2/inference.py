@@ -84,8 +84,8 @@ class Inference:
         nlp = spacy.load(
             'en_core_web_sm',
             disable=['ner', 'parser', 'textcat'])
-        nlp.add_pipe('sentencizer')
-        # nlp.add_pipe(nlp.create_pipe('sentencizer'))
+        # nlp.add_pipe('sentencizer')
+        nlp.add_pipe(nlp.create_pipe('sentencizer'))
         with open(PATTERN_PATH, "r", encoding="utf8") as fin:
             all_patterns = json.load(fin)
         matcher = Matcher(nlp.vocab)
@@ -556,7 +556,8 @@ class Inference:
         def node_info(node_id: int, score_map: dict, grounded: dict):
             node = dict()
             node['id'] = node_id
-            node['name'] = kgapi.id2concept_api(np.abs(node_id))
+            # node['name'] = kgapi.id2concept_api(np.abs(node_id))
+            node['name'] = id2concept[np.abs(node_id)]
             node['description'] = ""
             node['q_node'] = False
             node['ans_node'] = False
@@ -567,18 +568,64 @@ class Inference:
             node['width'] = score_map[node_id]
             return node
 
+        # def edge_info(node_ids: list):
+        #     pair_list = [list(i) for i in list(product(node_ids, node_ids))]
+        #     edges = kgapi.get_edges_by_node_pairs(pair_list)
+        #
+        #
+        #     re = dict()
+        #     print(cpnet_simple[2411][28866])
+        #     print(cpnet[2411][28866])
+        #     for i in edges.items():
+        #         tmp_dict = dict()
+        #         tmp_dict['source'] = nid_to_int(i[1]['in_id'])
+        #         tmp_dict['target'] = nid_to_int(i[1]['out_id'])
+        #         tmp_dict['weight'] = i[1]['weight']
+        #         tmp_dict['label'] = i[1]['name']
+        #         re[i[0]] = tmp_dict
+        #     return re
+
         def edge_info(node_ids: list):
+            id2relation = [
+                'antonym',
+                'atlocation',
+                'capableof',
+                'causes',
+                'createdby',
+                'isa',
+                'desires',
+                'hassubevent',
+                'partof',
+                'hascontext',
+                'hasproperty',
+                'madeof',
+                'notcapableof',
+                'notdesires',
+                'receivesaction',
+                'relatedto',
+                'usedfor',
+                    ]
             pair_list = [list(i) for i in list(product(node_ids, node_ids))]
-            edges = kgapi.get_edges_by_node_pairs(pair_list)
+            # edges = [cpnet[pair[0]][pair[1]][0] for pair in pair_list]
+            edges = []
+
+            for pair in pair_list:
+                if cpnet_simple.has_edge(pair[0],pair[1]):
+                    edges.append(cpnet[pair[0]][pair[1]][0])
+
 
             re = dict()
-            for i in edges.items():
+
+            for i, (node_pair,edge) in enumerate(zip(pair_list,edges)) :
                 tmp_dict = dict()
-                tmp_dict['source'] = kgapi.nid_to_int(i[1]['in_id'])
-                tmp_dict['target'] = kgapi.nid_to_int(i[1]['out_id'])
-                tmp_dict['weight'] = i[1]['weight']
-                tmp_dict['label'] = i[1]['name']
-                re[i[0]] = tmp_dict
+                tmp_dict['source'] = node_pair[0]
+                tmp_dict['target'] = node_pair[1]
+                tmp_dict['weight'] = edge['weight']
+                if edge['rel'] >= len(id2relation):
+                    tmp_dict['label'] =id2relation[edge['rel']-len(id2relation)]
+                else:
+                    tmp_dict['label'] = id2relation[edge['rel']]
+                re[i] = tmp_dict
             return re
 
         info = dict()
