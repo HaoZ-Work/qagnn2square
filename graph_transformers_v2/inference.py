@@ -9,7 +9,7 @@ import networkx as nx
 import spacy
 from spacy.matcher import Matcher
 from itertools import product
-
+import pprint
 
 
 from graph_transformers_v2.modelling import (
@@ -51,7 +51,7 @@ CPNET_PATH = DATA_DIR+"conceptnet.en.pruned.graph"
 PATTERN_PATH = DATA_DIR+"matcher_patterns.json"
 MODEL_PATH = DATA_DIR+"csqa_model_hf3.4.0.pt"
 
-LM_MODEL = "roberta-base"
+LM_MODEL = "roberta-large"
 MAX_NODE_NUM = 200
 NUM_CHOICE = 5
 
@@ -492,6 +492,7 @@ class Inference:
     def _predict(self):
         start = time.time()
         statements, grounded, graphs = self._prepare_data()
+        self.num_choice = len(statements['choices'])
         self.graphs = graphs
         self.grounded = grounded
         model_type = self.lm_model.config.model_type
@@ -518,15 +519,20 @@ class Inference:
         *test_decoder_data, test_adj_data = self.load_sparse_adj_data_with_contextnode(
             graphs,
             max_node_num=MAX_NODE_NUM,
-            num_choice=NUM_CHOICE,
+            num_choice=self.num_choice,
         )
 
         input_data = [*data_tensors,*test_decoder_data, *test_adj_data]
 
         # start = time.time()
         with torch.no_grad():
-            logits, attn = self.model(*input_data)
+            # logits, attn = self.model(*input_data)
+            logits, attn, concept_ids, node_type_ids, edge_index_orig, edge_type_orig = self.model(*input_data, detail=True)
 
+
+        self.attn = attn #
+        self.concept_ids = concept_ids
+        self.node_type_ids = node_type_ids
         # print(attn)
         # print(logits)
         # print(self.to_numpy(logits))
@@ -540,6 +546,7 @@ class Inference:
             predictions["logits"] = probabilities
             labels = torch.argmax(predictions["logits"], dim=-1)
             task_outputs["labels"] = labels.tolist()
+            self.correct_idx = labels.tolist()[0]
 
         end = time.time()
         print(f"prediction takes {end - start}")
@@ -549,6 +556,161 @@ class Inference:
 
         # print(f"The prediction of current input is : {self.inputs[predictions.detach().cpu().numpy()[0]][1]}")
         # return self.inputs[predictions.detach().cpu().numpy()[0]][1]
+
+    def _get_attn(self):
+
+        info = dict()
+        info['concept_ids'] =  self.concept_ids.squeeze()  # (5,200)
+        info['node_type_ids'] = self.node_type_ids.squeeze()  # (5,200)
+        #0: question node
+        #1: ans node
+        #2: extra/other nodes
+        #3: qa context node
+        attn_h1 = self.attn[:self.num_choice]
+        attn_h2 = self.attn[self.num_choice:]
+        # info['attn'] = (attn_h1 + attn_h2) / 2  # (5,200)
+        info['attn'] = (attn_h1 + attn_h2)  # (5,200)
+        # info['attn'] = attn_h2   # (5,200)
+        ## TODO:
+        ## check only one atten
+        ## check the sum
+
+        a_idx = [info['node_type_ids'] == 1]
+        a_id = set((info['concept_ids'][a_idx]-1).tolist())
+
+        o_idx = [info['node_type_ids'] == 2]
+        o_id = set((info['concept_ids'][o_idx]-1).tolist())
+
+        q_idx = [info['node_type_ids']==0]
+        q_id =  set((info['concept_ids'][ q_idx]-1).tolist())
+
+        # # direction Q->O
+        # q_idx = [info['node_type_ids']==0]
+        # q_id =  set((info['concept_ids'][ q_idx]-1).tolist())
+        # # for i in q_id:
+        # #     print(id2concept[i])
+        #
+        # o_idx = [info['node_type_ids'] == 2]
+        # o_id = set((info['concept_ids'][o_idx]-1).tolist())
+        # # for i in o_id:
+        # #     print(id2concept[i])
+        # o_id_connected_with_q = [ ]
+        # qo_paris = [list(i) for i in product(q_id,o_id)]
+        # for pair in qo_paris:
+        #     if (cpnet_simple.has_edge(pair[0], pair[1]) or cpnet_simple.has_edge(pair[1], pair[0])):
+        #         o_id_connected_with_q.append(pair[1])
+        #         # print(f"Q->O {id2concept[pair[0]]} and {id2concept[pair[1]]} are connected")
+        #
+        # o_id_connected_with_q = set(o_id_connected_with_q)
+        # o_id_connected_with_q_idx = []
+        # print("Direction Q->O:",[id2concept[i] for i in o_id_connected_with_q])
+        #
+        # #direction A->O
+        # o_id_connected_with_a = []
+        # a_idx = [info['node_type_ids'] == 1]
+        # a_id = set((info['concept_ids'][a_idx]-1).tolist())
+        # ao_paris = [list(i) for i in product(a_id, o_id)]
+        # for pair in ao_paris:
+        #     if (cpnet.has_edge(pair[0], pair[1]) or cpnet.has_edge(pair[1], pair[0])):
+        #         o_id_connected_with_a.append(pair[1])
+        #         # print(f"A->O {id2concept[pair[0]]} and {id2concept[pair[1]]} are connected")
+        #
+        # o_id_connected_with_a = set(o_id_connected_with_a)
+        # o_id_connected_with_a_idx = []
+        # print("Direction A->O:",[id2concept[i] for i in o_id_connected_with_a])
+        #
+        # # direction O->A
+        # a_id_connected_with_o = []
+        #
+        # oa_paris = [list(i) for i in product(o_id, a_id)]
+        # for pair in oa_paris:
+        #     if (cpnet.has_edge(pair[0], pair[1]) or cpnet.has_edge(pair[1], pair[0])):
+        #         a_id_connected_with_o.append(pair[1])
+        #         # print(f"O->A {id2concept[pair[0]]} and {id2concept[pair[1]]} are connected")
+        #
+        # a_id_connected_with_o = set(a_id_connected_with_o)
+        # a_id_connected_with_o_idx = []
+        # a_id_connected_with_o_attn = []
+        # for i in a_id:
+        #     row_idx = []
+        #     row_attn = []
+        #     for n in range(info['attn'].shape[0]):
+        #         idx = (info['concept_ids'][n]==(i+1)).nonzero()
+        #
+        #         try:
+        #             row_idx.append(idx)
+        #             row_attn.append(info['attn'][n][idx])
+        #
+        #         except IndexError:
+        #             continue
+        #     a_id_connected_with_o_idx.append(row_idx)
+        #     a_id_connected_with_o_attn.append(row_attn)
+        # re = dict()
+        # for a,attn in zip(a_id,a_id_connected_with_o_attn):
+        #     tmp_dict=dict()
+        #     for i in range(len(attn)):
+        #         tmp_dict['choice_'+str(i)] = attn[i]
+        #     re[a] = tmp_dict
+        # print("Direction O->A:",[id2concept[i] for i in a_id_connected_with_o])
+
+        def bfs_attn(source, target):
+            target_id_connected_with_source = []
+
+            paris = [list(i) for i in product(source, target)]
+            for pair in paris:
+                if (cpnet.has_edge(pair[0], pair[1]) or cpnet.has_edge(pair[1], pair[0])):
+                    target_id_connected_with_source.append(pair[1])
+
+            target_id_connected_with_source = set(target_id_connected_with_source)
+            target_id_connected_with_source_idx = []
+            target_id_connected_with_source_attn = []
+            for i in target:
+                row_idx = []
+                row_attn = []
+                # for n in range(info['attn'].shape[0]):
+                #     idx = (info['concept_ids'][n] == (i + 1)).nonzero()
+                #
+                #     try:
+                #         row_idx.append(idx)
+                #         row_attn.append(info['attn'][n][idx])
+                #
+                #     except IndexError:
+                #         continue
+
+                idx = (info['concept_ids'][self.correct_idx] == (i + 1)).nonzero()
+
+                try:
+                    row_idx.append(idx)
+                    row_attn.append(info['attn'][self.correct_idx][idx])
+
+                except IndexError:
+                    continue
+                target_id_connected_with_source_idx.append(row_idx)
+                target_id_connected_with_source_attn.append(row_attn)
+            re = dict()
+            for t, attn in zip(target, target_id_connected_with_source_attn):
+                # tmp_dict = dict()
+                # for i in range(len(attn)):
+                #     tmp_dict['choice_' + str(i)] = attn[i]
+                re[id2concept[t]] = attn[0]
+            print("targer entities:", [id2concept[i] for i in target_id_connected_with_source])
+            if 'ab_extra' in re:
+                re.pop('ab_extra')
+            return re
+
+
+
+
+
+        qo_path = bfs_attn(q_id, o_id)
+        ao_path = bfs_attn(a_id, o_id)
+        oa_path = bfs_attn(o_id, a_id)
+
+        # pprint.pprint(bfs_attn(q_id, o_id))
+        # pprint.pprint(bfs_attn(a_id, o_id))
+        # pprint.pprint(bfs_attn(o_id, a_id))
+        return (qo_path,ao_path,oa_path)
+
 
     def _get_info(self):
 
@@ -568,22 +730,6 @@ class Inference:
             node['width'] = score_map[node_id]
             return node
 
-        # def edge_info(node_ids: list):
-        #     pair_list = [list(i) for i in list(product(node_ids, node_ids))]
-        #     edges = kgapi.get_edges_by_node_pairs(pair_list)
-        #
-        #
-        #     re = dict()
-        #     print(cpnet_simple[2411][28866])
-        #     print(cpnet[2411][28866])
-        #     for i in edges.items():
-        #         tmp_dict = dict()
-        #         tmp_dict['source'] = nid_to_int(i[1]['in_id'])
-        #         tmp_dict['target'] = nid_to_int(i[1]['out_id'])
-        #         tmp_dict['weight'] = i[1]['weight']
-        #         tmp_dict['label'] = i[1]['name']
-        #         re[i[0]] = tmp_dict
-        #     return re
 
         def edge_info(node_ids: list):
             id2relation = [
@@ -654,21 +800,29 @@ class Inference:
         return info
 
 
+
 if __name__ == '__main__':
     model_path = DATA_DIR+"csqa_model_hf3.4.0.pt"
-    question = "The sanctions against the school were a punishing blow, and they seemed " \
-               "to what the efforts the school had made to change?"
-    choices =  ["ignore", "enforce", "authoritarian", "yell at", "avoid"]
+    # question = "The sanctions against the school were a punishing blow, and they seemed " \
+    #            "to what the efforts the school had made to change?"
+    # choices =  ["ignore", "enforce", "authoritarian", "yell at", "avoid"]
     # question = "There is a star at the center of what group of celestial bodies?"
     # choices = ["hollywood", "skyline", "outer space", "constellation", "solar system"]
 
     # question = "Google Maps and other highway and street GPS services have replaced what?"
     # choices = ["united states", "mexico", "countryside", "atlas", "oceans"]
+
+
+    # question = "Crabs live in what sort of enviroment?"
+    # choices = ["saltwater","galapagos","fish market"]
+
+    question = "Where would you find a basement that can be accesssed with an elevator?"
+    choices = ["closet","church","office building"]
     input = [[question, choice] for choice in choices]
     # input = {"question": question, "choices": choices}
     start = time.time()
     inf = Inference(inputs=input, model_path=model_path)
     inf._predict()
-    inf._get_info()
+    inf._get_attn()
     end = time.time()
     print("Inference time: ", end-start)
