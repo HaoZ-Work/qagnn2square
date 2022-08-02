@@ -10,6 +10,7 @@ import spacy
 from spacy.matcher import Matcher
 from itertools import product
 import pprint
+import operator
 
 
 from graph_transformers_v2.modelling import (
@@ -679,23 +680,32 @@ class Inference:
 
                 idx = (info['concept_ids'][self.correct_idx] == (i + 1)).nonzero()
 
-                try:
-                    row_idx.append(idx)
-                    row_attn.append(info['attn'][self.correct_idx][idx])
+                if idx.tolist()!=[]:
 
-                except IndexError:
-                    continue
-                target_id_connected_with_source_idx.append(row_idx)
-                target_id_connected_with_source_attn.append(row_attn)
+                    try:
+                        row_idx.append(idx)
+                        row_attn.append(info['attn'][self.correct_idx][idx])
+
+                    except IndexError:
+
+                        continue
+                    target_id_connected_with_source_idx.append(row_idx)
+                    target_id_connected_with_source_attn.append(row_attn)
             re = dict()
             for t, attn in zip(target, target_id_connected_with_source_attn):
                 # tmp_dict = dict()
                 # for i in range(len(attn)):
                 #     tmp_dict['choice_' + str(i)] = attn[i]
-                re[id2concept[t]] = attn[0]
+                re[id2concept[t]] = float(attn[0][0][0])
             print("targer entities:", [id2concept[i] for i in target_id_connected_with_source])
             if 'ab_extra' in re:
                 re.pop('ab_extra')
+
+            re = dict(sorted(re.items(),key=operator.itemgetter(1),reverse=True ))
+            # re = sorted(re.items(), key = lambda kv:(kv[1], kv[0]))
+            # re_dict=dict()
+            # for i in re:
+            #     re_dict[i[0]]=i[1]
             return re
 
 
@@ -706,9 +716,9 @@ class Inference:
         ao_path = bfs_attn(a_id, o_id)
         oa_path = bfs_attn(o_id, a_id)
 
-        # pprint.pprint(bfs_attn(q_id, o_id))
-        # pprint.pprint(bfs_attn(a_id, o_id))
-        # pprint.pprint(bfs_attn(o_id, a_id))
+        print(qo_path)
+        print(ao_path)
+        print(oa_path)
         return (qo_path,ao_path,oa_path)
 
 
