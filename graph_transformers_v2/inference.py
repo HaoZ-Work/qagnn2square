@@ -20,7 +20,7 @@ from graph_transformers_v2.preprocess import (
     statement,
     grounding,
     graph,
-    kgapi
+    # kgapi
 )
 
 import torch
@@ -550,7 +550,16 @@ class Inference:
         # print(f"The prediction of current input is : {self.inputs[predictions.detach().cpu().numpy()[0]][1]}")
         # return self.inputs[predictions.detach().cpu().numpy()[0]][1]
 
-    def _get_info(self):
+    def _get_info(self)->float:
+
+        def softmax(score: float, score_map: dict):
+            values = np.array(list(score_map.values()))
+            sum = np.exp(values).sum()
+
+            return np.exp(score) / sum
+
+        def sigmoid(score:float)->float:
+            return 1/(1+np.exp(-1*score))
 
 
         def node_info(node_id: int, score_map: dict, grounded: dict):
@@ -565,7 +574,8 @@ class Inference:
                 node['q_node'] = True
             elif node['name'] in grounded['ac']:
                 node['ans_node'] = True
-            node['width'] = score_map[node_id]
+            node['width'] = softmax(score_map[node_id], score_map)
+            # node['width'] = sigmoid(score_map[node_id])
             return node
 
         # def edge_info(node_ids: list):
